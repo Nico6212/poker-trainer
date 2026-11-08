@@ -1,0 +1,466 @@
+'use client';
+
+import Link from 'next/link';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  generateDrill,
+  gradeDrill,
+  loadDrillStats,
+  recordDrillResult,
+  type DrillGrade,
+  type DrillPack,
+  type DrillQuestion,
+  type DrillStats,
+} from '@/lib/poker/drill';
+import { formatAmount } from '@/lib/poker/format';
+import { median } from '@/lib/poker/session';
+import { CardView } from '@/components/table/CardView';
+
+const SERIES_LENGTH = 20;
+const SPRINT_MS = 120_000;
+
+const PACKS: { key: DrillPack; label: string; description: string }[] = [
+  { key: 'potOdds', label: 'Cote du pot', description: 'Pot + mise → il te faut combien ?' },
+  { key: 'sizeFlash', label: 'Tailles → % (flash)', description: '« Il mise ½ pot » → 25 %. À connaître par cœur.' },
+  { key: 'outs', label: 'Outs', description: 'Compte les cartes qui te font passer devant.' },
+  { key: 'equity', label: 'Équité', description: 'Estime tes chances contre une range.' },
+  { key: 'openRange', label: 'Ranges préflop', description: 'Cette main s’ouvre-t-elle depuis ce siège ?' },
+  { key: 'pushFold', label: 'Push / Fold (Spin & MTT)', description: '≤ 13 BB : push ou jette, selon les tableaux ~Nash.' },
+  { key: 'mixed', label: 'Mixte (entrelacé)', description: 'Le type de question n’est pas annoncé — comme à la table.' },
+];
+
+const PCT_CHIPS = [17, 20, 25, 29, 33, 38, 40];
+
+/** Cible de vitesse par type : le critère « automatique » = précis ET sous la cible. */
+const TARGET_MS: Record<string, number> = {
+  potOdds: 10_000,
+  sizeFlash: 5_000,
+  outs: 15_000,
+  equity: 15_000,
+  openRange: 6_000,
+  pushFold: 6_000,
+};
+
+function masteryChip(
+  kind: string,
+  s: { attempts: number; correct: number; times: number[] } | undefined,
+): { text: string; cls: string } {
+  if (!s || s.attempts < 15) return { text: '⚪ à construire', cls: 'text-neutral-400' };
+  const precision = s.correct / s.attempts;
+  const medianMs = median(s.times) ?? Infinity;
+  if (precision >= 0.9 && medianMs <= (TARGET_MS[kind] ?? Infinity)) {
+    return { text: '🟢 automatique', cls: 'text-emerald-600 dark:text-emerald-400' };
+  }
+  if (precision >= 0.75) return { text: '🟡 en cours', cls: 'text-amber-600 dark:text-amber-400' };
+  return { text: '🔴 à travailler', cls: 'text-red-600 dark:text-red-400' };
+}
+
+type Mode = 'serie' | 'sprint';
+type Phase = 'menu' | 'question' | 'feedback' | 'finished';
+
+const fmtBB = (cents: number) => formatAmount(cents, 'bb', 2);
+const pct = (x: number) => `${Math.round(x * 100)} %`;
+
+function QuestionPrompt({ question }: { question: DrillQuestion }) {
+  switch (question.kind) {
+    case 'potOdds':
+      return (
+        <p className="text-lg">
+          Pot <strong>{fmtBB(question.pot)}</strong> — il mise{' '}
+          <strong>{fmtBB(question.bet)}</strong>. Il te faut combien ?
+        </p>
+      );
+    case 'sizeFlash':
+      return (
+        <p className="text-lg">
+          Il mise <strong>{question.fractionLabel}</strong> → il te faut combien ?
+        </p>
+      );
+    case 'outs':
+      return (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-500">Ta main :</span>
+            {question.hero.map((c) => (
+              <CardView key={c} card={c} size="sm" />
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-500">Board :</span>
+            {question.board.map((c) => (
+              <CardView key={c} card={c} size="sm" />
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-500">Il montre :</span>
+            {question.villain.map((c) => (
+              <CardView key={c} card={c} size="sm" />
+            ))}
+          </div>
+          <p className="text-lg">Combien d’outs te font passer devant ?</p>
+        </div>
+      );
+    case 'equity':
+      return (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-500">Ta main :</span>
+            {question.hero.map((c) => (
+              <CardView key={c} card={c} size="sm" />
+            ))}
+          </div>
+          {question.board.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-500">Board :</span>
+              {question.board.map((c) => (
+                <CardView key={c} card={c} size="sm" />
+              ))}
+            </div>
+          )}
+          <p className="text-lg">
+            Ton équité contre <strong>{question.rangeLabel}</strong> ?
+          </p>
+        </div>
+      );
+    case 'openRange':
+      return (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex gap-1">
+            {question.cards.map((c) => (
+              <CardView key={c} card={c} />
+            ))}
+          </div>
+          <p className="text-lg">
+            Tu es <strong>{question.position}</strong>, personne n’a relancé : tu ouvres ?
+          </p>
+        </div>
+      );
+    case 'pushFold':
+      return (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex gap-1">
+            {question.cards.map((c) => (
+              <CardView key={c} card={c} />
+            ))}
+          </div>
+          <p className="text-lg">
+            {question.mode === 'push' ? (
+              <>
+                Tapis <strong>{Math.round(question.stackBB)} BB</strong>,{' '}
+                <strong>{question.chartLabel}</strong> : tu push ?
+              </>
+            ) : (
+              <>
+                <strong>{question.chartLabel}</strong>, {Math.round(question.stackBB)} BB
+                effectives : tu payes son push ?
+              </>
+            )}
+          </p>
+        </div>
+      );
+  }
+}
+
+export function DrillView() {
+  const [phase, setPhase] = useState<Phase>('menu');
+  const [pack, setPack] = useState<DrillPack>('potOdds');
+  const [drillMode, setDrillMode] = useState<Mode>('serie');
+  const [question, setQuestion] = useState<DrillQuestion | null>(null);
+  const [grade, setGrade] = useState<DrillGrade | null>(null);
+  const [numInput, setNumInput] = useState('');
+  const [results, setResults] = useState<{ ok: boolean; ms: number }[]>([]);
+  const [stats, setStats] = useState<DrillStats>({});
+  const [sprintEnd, setSprintEnd] = useState<number | null>(null);
+  const questionStart = useRef(0);
+
+  useEffect(() => setStats(loadDrillStats()), []);
+
+  const newQuestion = useCallback((currentPack: DrillPack) => {
+    setQuestion(generateDrill(currentPack, Math.random));
+    setGrade(null);
+    setNumInput('');
+    setPhase('question');
+    questionStart.current = performance.now();
+  }, []);
+
+  const start = (selected: DrillPack, selectedMode: Mode) => {
+    setPack(selected);
+    setDrillMode(selectedMode);
+    setResults([]);
+    setSprintEnd(selectedMode === 'sprint' ? performance.now() + SPRINT_MS : null);
+    newQuestion(selected);
+  };
+
+  const submit = useCallback(
+    (answer: number | boolean) => {
+      if (!question || phase !== 'question') return;
+      const elapsed = Math.round(performance.now() - questionStart.current);
+      const graded = gradeDrill(question, answer);
+      setGrade(graded);
+      setResults((r) => [...r, { ok: graded.ok, ms: elapsed }]);
+      setStats((s) => recordDrillResult(s, question.kind, graded.ok, elapsed));
+      setPhase('feedback');
+    },
+    [question, phase],
+  );
+
+  const next = useCallback(() => {
+    const count = results.length;
+    const sprintOver = sprintEnd !== null && performance.now() >= sprintEnd;
+    const serieOver = sprintEnd === null && count >= SERIES_LENGTH;
+    if (sprintOver || serieOver) setPhase('finished');
+    else newQuestion(pack);
+  }, [results.length, sprintEnd, pack, newQuestion]);
+
+  // Le sprint enchaîne tout seul après un court feedback.
+  useEffect(() => {
+    if (phase !== 'feedback' || sprintEnd === null) return;
+    const timer = setTimeout(next, 800);
+    return () => clearTimeout(timer);
+  }, [phase, sprintEnd, next]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (phase === 'feedback' && event.key === 'Enter' && sprintEnd === null) next();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phase, next, sprintEnd]);
+
+  const needsPctInput =
+    question?.kind === 'potOdds' || question?.kind === 'sizeFlash' || question?.kind === 'equity';
+  const correct = results.filter((r) => r.ok).length;
+  const medianMs = median(results.map((r) => r.ms));
+
+  return (
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-4 p-3 sm:p-4">
+      <header className="flex items-center justify-between text-sm">
+        <h1 className="text-lg font-bold">Drill — automatismes</h1>
+        <Link
+          href="/"
+          className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
+        >
+          ← Retour à la table
+        </Link>
+      </header>
+
+      {phase === 'menu' && (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Des séries courtes de spots isolés : 10 à 20 fois plus de répétitions du calcul
+            qu'en jouant des mains. Série de {SERIES_LENGTH}, ou sprint de 2 minutes.
+          </p>
+          {PACKS.map((p) => {
+            const s = p.key !== 'mixed' ? stats[p.key] : null;
+            const mastery = p.key !== 'mixed' ? masteryChip(p.key, s ?? undefined) : null;
+            return (
+              <div
+                key={p.key}
+                className="flex items-center justify-between gap-3 rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-neutral-900/70"
+              >
+                <div>
+                  <p className="font-semibold">
+                    {p.label}{' '}
+                    {mastery && <span className={`text-xs font-medium ${mastery.cls}`}>{mastery.text}</span>}
+                  </p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{p.description}</p>
+                  {s && s.attempts > 0 && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                      {Math.round((s.correct / s.attempts) * 100)} % de réussite ·{' '}
+                      {s.times.length > 0 ? `${((median(s.times) ?? 0) / 1000).toFixed(1)} s` : ''}{' '}
+                      · {s.attempts} réponses · cible ≤ {(TARGET_MS[p.key] ?? 0) / 1000} s
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => start(p.key, 'serie')}
+                    className="rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                  >
+                    Série
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => start(p.key, 'sprint')}
+                    className="rounded-md bg-neutral-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600"
+                  >
+                    Sprint 2 min
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {(phase === 'question' || phase === 'feedback') && question && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between text-xs text-neutral-500">
+            <span>
+              {PACKS.find((p) => p.key === pack)?.label} ·{' '}
+              {drillMode === 'sprint'
+                ? 'Sprint 2 min'
+                : `Question ${results.length + (phase === 'question' ? 1 : 0)}/${SERIES_LENGTH}`}
+            </span>
+            <span>
+              {correct}/{results.length} ✓
+            </span>
+          </div>
+
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-black/10 bg-white/70 p-5 text-center dark:border-white/10 dark:bg-neutral-900/70">
+            <QuestionPrompt question={question} />
+
+            {phase === 'question' && (
+              <>
+                {needsPctInput && (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                      {PCT_CHIPS.map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => submit(chip)}
+                          className="rounded-md bg-neutral-200 px-3 py-2 text-sm font-semibold hover:bg-amber-300 dark:bg-neutral-700 dark:hover:bg-amber-500"
+                        >
+                          {chip} %
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        autoFocus
+                        placeholder="libre"
+                        value={numInput}
+                        onChange={(e) => setNumInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && numInput !== '') submit(Number(numInput));
+                        }}
+                        className="w-24 rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-right text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                      />
+                      <span className="text-sm text-neutral-500">%</span>
+                    </div>
+                  </div>
+                )}
+                {question.kind === 'outs' && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      autoFocus
+                      placeholder="outs"
+                      value={numInput}
+                      onChange={(e) => setNumInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && numInput !== '') submit(Number(numInput));
+                      }}
+                      className="w-24 rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-right text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                    />
+                    <button
+                      type="button"
+                      disabled={numInput === ''}
+                      onClick={() => submit(Number(numInput))}
+                      className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                      Valider
+                    </button>
+                  </div>
+                )}
+                {(question.kind === 'openRange' || question.kind === 'pushFold') && (
+                  <div className="grid w-full max-w-xs grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => submit(false)}
+                      className="rounded-lg bg-red-600 px-3 py-3 font-semibold text-white hover:bg-red-700"
+                    >
+                      Je jette
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => submit(true)}
+                      className="rounded-lg bg-emerald-600 px-3 py-3 font-semibold text-white hover:bg-emerald-700"
+                    >
+                      {question.kind === 'pushFold'
+                        ? question.mode === 'push'
+                          ? 'Push (tapis)'
+                          : 'Je paye'
+                        : 'J’ouvre'}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {phase === 'feedback' && grade && (
+              <div className="flex flex-col items-center gap-2">
+                <p
+                  className={`text-lg font-bold ${grade.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
+                >
+                  {grade.ok ? '✓' : '✗'} {grade.actualText}
+                </p>
+                {question.kind === 'outs' && question.outs.length > 0 && (
+                  <div className="flex max-w-sm flex-wrap justify-center gap-1">
+                    {question.outs.map((c) => (
+                      <CardView key={c} card={c} size="sm" />
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm text-neutral-600 dark:text-neutral-300">{grade.explain}</p>
+                {sprintEnd === null && (
+                  <button
+                    type="button"
+                    onClick={next}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700"
+                  >
+                    Suivant (Entrée)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {phase === 'finished' && (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-black/10 bg-white/70 p-6 text-center dark:border-white/10 dark:bg-neutral-900/70">
+          <p className="text-2xl font-bold">
+            {correct}/{results.length}
+          </p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            {Math.round((correct / Math.max(1, results.length)) * 100)} % de réussite
+            {medianMs !== null ? ` · ${(medianMs / 1000).toFixed(1)} s par réponse (médiane)` : ''}
+            {pack !== 'mixed' && TARGET_MS[pack]
+              ? ` · ${results.filter((r) => r.ok && r.ms <= TARGET_MS[pack]).length} réponses « automatiques » (justes en ≤ ${TARGET_MS[pack] / 1000} s)`
+              : ''}
+          </p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            🟢 automatique = ≥ 90 % de réussite ET médiane sous la cible, sur tes 50 dernières
+            réponses.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => start(pack, drillMode)}
+              className="rounded-lg bg-emerald-600 px-4 py-2.5 font-semibold text-white hover:bg-emerald-700"
+            >
+              Rejouer
+            </button>
+            <button
+              type="button"
+              onClick={() => setPhase('menu')}
+              className="rounded-lg bg-neutral-200 px-4 py-2.5 font-semibold hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600"
+            >
+              Menu
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-center text-[11px] text-neutral-400 dark:text-neutral-600">
+        Montants en BB. Tolérances : ±5 pts (cote, équité), ±2 pts (flash), ±1 out.
+      </p>
+    </main>
+  );
+}
