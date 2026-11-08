@@ -1,6 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+
+/** Colore la barre du navigateur mobile aux couleurs de la feutrine. */
+export const viewport: Viewport = {
+  themeColor: "#065f46",
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
