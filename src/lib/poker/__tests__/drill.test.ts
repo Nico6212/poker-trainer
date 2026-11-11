@@ -72,6 +72,81 @@ describe('generateDrill', () => {
     }
   });
 
+  it('betSize : les cinq variantes sortent et respectent les recettes', () => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 120; seed++) {
+      const q = generateDrill('betSize', mulberry32(seed));
+      if (q.kind !== 'betSize') throw new Error('mauvais type');
+      seen.add(q.variant);
+      if (q.variant === 'amount') {
+        expect(q.answerBB).toBeGreaterThanOrEqual(q.potBB / 3 - 0.1);
+        expect(q.answerBB).toBeLessThanOrEqual(q.potBB + 0.1);
+      } else if (q.variant === 'fraction') {
+        expect(q.options).toContain(q.answerLabel);
+      } else if (q.variant === 'open') {
+        expect(q.answerBB).toBe(3 + q.limpers);
+      } else if (q.variant === 'threebet') {
+        expect(q.answerBB).toBe(((q.inPosition ? 3 : 4) + q.callers) * q.openBB);
+      } else {
+        expect(q.answerPct).toBeCloseTo(q.betBB / (q.betBB + q.potBB));
+      }
+    }
+    expect(seen.size).toBe(5);
+  });
+
+  it('betSize : notation avec les bonnes tolérances', () => {
+    const amount: DrillQuestion = {
+      kind: 'betSize',
+      variant: 'amount',
+      potBB: 12,
+      fractionLabel: '⅔ pot',
+      answerBB: 8,
+    };
+    expect(gradeDrill(amount, 8).ok).toBe(true);
+    expect(gradeDrill(amount, 8.7).ok).toBe(true); // ±max(0,5 ; 10 %)
+    expect(gradeDrill(amount, 9).ok).toBe(false); // 9 = ¾ pot : fraction voisine rejetée
+
+    // Recette exacte : oublier le limpeur doit être compté faux.
+    const open: DrillQuestion = { kind: 'betSize', variant: 'open', limpers: 1, answerBB: 4 };
+    expect(gradeDrill(open, 4).ok).toBe(true);
+    expect(gradeDrill(open, 3).ok).toBe(false);
+    expect(gradeDrill(open, 5).ok).toBe(false);
+
+    // Oublier le « +1× par suiveur » hors position doit être compté faux.
+    const threebet: DrillQuestion = {
+      kind: 'betSize',
+      variant: 'threebet',
+      openBB: 4,
+      inPosition: false,
+      callers: 1,
+      answerBB: 20,
+    };
+    expect(gradeDrill(threebet, 20).ok).toBe(true);
+    expect(gradeDrill(threebet, 18).ok).toBe(true); // arrondi raisonnable
+    expect(gradeDrill(threebet, 16).ok).toBe(false); // suiveur oublié
+
+    const fraction: DrillQuestion = {
+      kind: 'betSize',
+      variant: 'fraction',
+      targetPct: 29,
+      answerLabel: '⅔ pot',
+      options: ['⅓ pot', '½ pot', '⅔ pot', 'pot', '2× pot'],
+    };
+    expect(gradeDrill(fraction, '⅔ pot').ok).toBe(true);
+    expect(gradeDrill(fraction, '½ pot').ok).toBe(false);
+
+    const bluff: DrillQuestion = {
+      kind: 'betSize',
+      variant: 'bluff',
+      betBB: 6,
+      potBB: 9,
+      answerPct: 0.4,
+    };
+    expect(gradeDrill(bluff, 40).ok).toBe(true);
+    expect(gradeDrill(bluff, 44).ok).toBe(true);
+    expect(gradeDrill(bluff, 46).ok).toBe(false);
+  });
+
   it('mixed : produit les différents types', () => {
     const kinds = new Set<string>();
     for (let seed = 0; seed < 40; seed++) {

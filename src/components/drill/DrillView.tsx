@@ -22,6 +22,7 @@ const SPRINT_MS = 120_000;
 const PACKS: { key: DrillPack; label: string; description: string }[] = [
   { key: 'potOdds', label: 'Cote du pot', description: 'Pot + mise → il te faut combien ?' },
   { key: 'sizeFlash', label: 'Tailles → % (flash)', description: '« Il mise ½ pot » → 25 %. À connaître par cœur.' },
+  { key: 'betSize', label: 'Combien miser ?', description: 'L’attaque : open, 3-bet, fraction du pot, bluff — à toi de donner la taille.' },
   { key: 'outs', label: 'Outs', description: 'Compte les cartes qui te font passer devant.' },
   { key: 'equity', label: 'Équité', description: 'Estime tes chances contre une range.' },
   { key: 'openRange', label: 'Ranges préflop', description: 'Cette main s’ouvre-t-elle depuis ce siège ?' },
@@ -29,12 +30,13 @@ const PACKS: { key: DrillPack; label: string; description: string }[] = [
   { key: 'mixed', label: 'Mixte (entrelacé)', description: 'Le type de question n’est pas annoncé — comme à la table.' },
 ];
 
-const PCT_CHIPS = [17, 20, 25, 29, 33, 38, 40];
+const PCT_CHIPS = [17, 20, 25, 29, 33, 38, 40, 50];
 
 /** Cible de vitesse par type : le critère « automatique » = précis ET sous la cible. */
 const TARGET_MS: Record<string, number> = {
   potOdds: 10_000,
   sizeFlash: 5_000,
+  betSize: 8_000,
   outs: 15_000,
   equity: 15_000,
   openRange: 6_000,
@@ -135,6 +137,55 @@ function QuestionPrompt({ question }: { question: DrillQuestion }) {
           </p>
         </div>
       );
+    case 'betSize':
+      switch (question.variant) {
+        case 'amount':
+          return (
+            <p className="text-lg">
+              Pot <strong>{question.potBB} BB</strong> — tu veux miser{' '}
+              <strong>{question.fractionLabel}</strong>. Combien ?
+            </p>
+          );
+        case 'fraction':
+          return (
+            <p className="text-lg">
+              Tu veux qu’il lui faille <strong>{question.targetPct} %</strong> pour payer :
+              quelle fraction du pot mises-tu ?
+            </p>
+          );
+        case 'open':
+          return (
+            <p className="text-lg">
+              Préflop, personne n’a relancé
+              {question.limpers > 0 ? (
+                <>
+                  , <strong>{question.limpers} limpeur{question.limpers > 1 ? 's' : ''}</strong>{' '}
+                  devant
+                </>
+              ) : (
+                ''
+              )}{' '}
+              : tu ouvres à combien ?
+            </p>
+          );
+        case 'threebet':
+          return (
+            <p className="text-lg">
+              Il ouvre à <strong>{question.openBB} BB</strong>
+              {question.callers > 0 ? ', 1 suiveur' : ''}. Tu 3-bet{' '}
+              <strong>{question.inPosition ? 'en position' : 'hors position'}</strong> : à
+              combien ?
+            </p>
+          );
+        case 'bluff':
+          return (
+            <p className="text-lg">
+              Bluff pur : tu mises <strong>{question.betBB} BB</strong> dans un pot de{' '}
+              <strong>{question.potBB} BB</strong>. Il doit se coucher au moins… ?
+            </p>
+          );
+      }
+      return null;
     case 'pushFold':
       return (
         <div className="flex flex-col items-center gap-2">
@@ -192,7 +243,7 @@ export function DrillView() {
   };
 
   const submit = useCallback(
-    (answer: number | boolean) => {
+    (answer: number | boolean | string) => {
       if (!question || phase !== 'question') return;
       const elapsed = Math.round(performance.now() - questionStart.current);
       const graded = gradeDrill(question, answer);
@@ -221,6 +272,8 @@ export function DrillView() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Ignore le key-repeat : Entrée maintenue depuis l'input sauterait la correction.
+      if (event.repeat) return;
       if (phase === 'feedback' && event.key === 'Enter' && sprintEnd === null) next();
     };
     window.addEventListener('keydown', onKey);
@@ -228,7 +281,13 @@ export function DrillView() {
   }, [phase, next, sprintEnd]);
 
   const needsPctInput =
-    question?.kind === 'potOdds' || question?.kind === 'sizeFlash' || question?.kind === 'equity';
+    question?.kind === 'potOdds' ||
+    question?.kind === 'sizeFlash' ||
+    question?.kind === 'equity' ||
+    (question?.kind === 'betSize' && question.variant === 'bluff');
+  const needsBBInput =
+    question?.kind === 'betSize' &&
+    (question.variant === 'amount' || question.variant === 'open' || question.variant === 'threebet');
   const correct = results.filter((r) => r.ok).length;
   const medianMs = median(results.map((r) => r.ms));
 
@@ -342,6 +401,46 @@ export function DrillView() {
                       />
                       <span className="text-sm text-neutral-500">%</span>
                     </div>
+                  </div>
+                )}
+                {needsBBInput && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      autoFocus
+                      step="0.5"
+                      placeholder="taille"
+                      value={numInput}
+                      onChange={(e) => setNumInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && numInput !== '') submit(Number(numInput));
+                      }}
+                      className="w-24 rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-right text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                    />
+                    <span className="text-sm text-neutral-500">BB</span>
+                    <button
+                      type="button"
+                      disabled={numInput === ''}
+                      onClick={() => submit(Number(numInput))}
+                      className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                      Valider
+                    </button>
+                  </div>
+                )}
+                {question.kind === 'betSize' && question.variant === 'fraction' && (
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {question.options.map((label) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => submit(label)}
+                        className="rounded-md bg-neutral-200 px-3 py-2 text-sm font-semibold hover:bg-amber-300 dark:bg-neutral-700 dark:hover:bg-amber-500"
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 )}
                 {question.kind === 'outs' && (

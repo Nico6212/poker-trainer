@@ -129,6 +129,7 @@ function ResultBanner({
 const DRILL_LABELS: Record<string, string> = {
   potOdds: 'Cote du pot',
   sizeFlash: 'Tailles → % (flash)',
+  betSize: 'Combien miser ?',
   outs: 'Outs',
   equity: 'Équité',
   openRange: 'Ranges préflop',

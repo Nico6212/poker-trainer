@@ -21,7 +21,14 @@ import {
 // cible (cote du pot, outs, équité, tailles, ranges) 10 à 20 fois plus densément
 // qu'en jouant des mains complètes.
 
-export type DrillKind = 'potOdds' | 'sizeFlash' | 'outs' | 'equity' | 'openRange' | 'pushFold';
+export type DrillKind =
+  | 'potOdds'
+  | 'sizeFlash'
+  | 'betSize'
+  | 'outs'
+  | 'equity'
+  | 'openRange'
+  | 'pushFold';
 export type DrillPack = DrillKind | 'mixed';
 
 export type DrillQuestion =
@@ -52,6 +59,25 @@ export type DrillQuestion =
       answerPct: number;
     }
   | { kind: 'openRange'; cards: [Card, Card]; hand: string; position: PositionLabel; answer: boolean }
+  // « Combien miser ? » : le miroir offensif de la cote du pot.
+  | { kind: 'betSize'; variant: 'amount'; potBB: number; fractionLabel: string; answerBB: number }
+  | {
+      kind: 'betSize';
+      variant: 'fraction';
+      targetPct: number;
+      answerLabel: string;
+      options: string[];
+    }
+  | { kind: 'betSize'; variant: 'open'; limpers: number; answerBB: number }
+  | {
+      kind: 'betSize';
+      variant: 'threebet';
+      openBB: number;
+      inPosition: boolean;
+      callers: number;
+      answerBB: number;
+    }
+  | { kind: 'betSize'; variant: 'bluff'; betBB: number; potBB: number; answerPct: number }
   | {
       kind: 'pushFold';
       cards: [Card, Card];
@@ -83,18 +109,27 @@ export function requiredForFraction(fraction: number): number {
 /** Les montants du drill sont en centimes avec bb = 2 : l'affichage se fait en BB. */
 export const DRILL_BB_CENTS = 2;
 
-const inBB = (cents: number): string => {
-  const value = cents / DRILL_BB_CENTS;
-  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace('.', ',');
-};
+const fmtBB = (bb: number): string =>
+  Number.isInteger(bb) ? String(bb) : bb.toFixed(1).replace('.', ',');
+const inBB = (cents: number): string => fmtBB(cents / DRILL_BB_CENTS);
 
 const DRILL_KINDS: DrillKind[] = [
   'potOdds',
   'sizeFlash',
+  'betSize',
   'outs',
   'equity',
   'openRange',
   'pushFold',
+];
+
+/** Cibles « % requis adverse → fraction du pot » sans ambiguïté (table inverse). */
+const INVERSE_SIZE_PAIRS: { pct: number; label: string }[] = [
+  { pct: 20, label: '⅓ pot' },
+  { pct: 25, label: '½ pot' },
+  { pct: 29, label: '⅔ pot' },
+  { pct: 33, label: 'pot' },
+  { pct: 40, label: '2× pot' },
 ];
 
 const EQUITY_RANGES: { label: string; classes: string[] | null }[] = [
@@ -187,6 +222,59 @@ export function generateDrill(pack: DrillPack, rng: RNG): DrillQuestion {
         answer: expandNotation(OPEN_RANGES[position]).has(hand),
       };
     }
+    case 'betSize': {
+      const roll = rng();
+      if (roll < 0.35) {
+        // Fraction → montant : le calcul mental brut.
+        const potBB = 4 + Math.floor(rng() * 27); // 4 à 30 BB
+        const fractions = [
+          { f: 1 / 3, label: '⅓ pot' },
+          { f: 1 / 2, label: '½ pot' },
+          { f: 2 / 3, label: '⅔ pot' },
+          { f: 3 / 4, label: '¾ pot' },
+          { f: 1, label: 'pot' },
+        ];
+        const pick = fractions[Math.floor(rng() * fractions.length)];
+        return {
+          kind,
+          variant: 'amount',
+          potBB,
+          fractionLabel: pick.label,
+          answerBB: Math.round(potBB * pick.f * 10) / 10,
+        };
+      }
+      if (roll < 0.55) {
+        // % cible → fraction : la table inverse.
+        const pick = INVERSE_SIZE_PAIRS[Math.floor(rng() * INVERSE_SIZE_PAIRS.length)];
+        return {
+          kind,
+          variant: 'fraction',
+          targetPct: pick.pct,
+          answerLabel: pick.label,
+          options: INVERSE_SIZE_PAIRS.map((p) => p.label),
+        };
+      }
+      if (roll < 0.7) {
+        const limpers = Math.floor(rng() * 4); // 0 à 3
+        return { kind, variant: 'open', limpers, answerBB: 3 + limpers };
+      }
+      if (roll < 0.85) {
+        const openBB = [2, 3, 4][Math.floor(rng() * 3)];
+        const inPosition = rng() < 0.5;
+        const callers = rng() < 0.3 ? 1 : 0;
+        return {
+          kind,
+          variant: 'threebet',
+          openBB,
+          inPosition,
+          callers,
+          answerBB: ((inPosition ? 3 : 4) + callers) * openBB,
+        };
+      }
+      const potBB = 6 + Math.floor(rng() * 15); // 6 à 20 BB
+      const betBB = Math.max(1, Math.round(potBB * [0.5, 2 / 3, 1][Math.floor(rng() * 3)]));
+      return { kind, variant: 'bluff', betBB, potBB, answerPct: betBB / (betBB + potBB) };
+    }
     case 'pushFold': {
       const deck = shuffle(createDeck(), rng);
       const cards: [Card, Card] = [deck[0], deck[1]];
@@ -247,7 +335,7 @@ function expandClassesToCombos(classes: string[], dead: Card[]): [Card, Card][] 
 export type DrillGrade = { ok: boolean; actualText: string; explain: string };
 
 /** Tolérances par type : les flash-cards sont des faits exacts (±2), le reste ±5 / ±1 out. */
-export function gradeDrill(question: DrillQuestion, answer: number | boolean): DrillGrade {
+export function gradeDrill(question: DrillQuestion, answer: number | boolean | string): DrillGrade {
   const pct = (x: number) => `${Math.round(x * 100)} %`;
   switch (question.kind) {
     case 'potOdds': {
@@ -297,6 +385,53 @@ export function gradeDrill(question: DrillQuestion, answer: number | boolean): D
           : `${question.hand} est hors de la range d'open ${question.position}.`,
       };
     }
+    case 'betSize': {
+      switch (question.variant) {
+        case 'amount': {
+          const guess = answer as number;
+          // Plancher 0,5 BB : à 1 BB, ⅓ et ½ pot se validaient mutuellement sur les petits pots.
+          const tolerance = Math.max(0.5, question.answerBB * 0.1);
+          return {
+            ok: Math.abs(guess - question.answerBB) <= tolerance + 1e-9,
+            actualText: `≈ ${fmtBB(question.answerBB)} BB`,
+            explain: `${question.fractionLabel} de ${question.potBB} BB ≈ ${fmtBB(question.answerBB)} BB. (Astuces : ⅔ = pot − ⅓ ; ¾ = moitié + quart.)`,
+          };
+        }
+        case 'fraction': {
+          return {
+            ok: answer === question.answerLabel,
+            actualText: question.answerLabel,
+            explain: `Pour lui imposer ${question.targetPct} %, mise ${question.answerLabel}. La table inverse : ⅓→20, ½→25, ⅔→29, pot→33, 2×→40.`,
+          };
+        }
+        case 'open': {
+          // Recette exacte à mémoriser : ±1 BB rendrait les classes adjacentes indistinguables.
+          return {
+            ok: Math.abs((answer as number) - question.answerBB) < 0.5,
+            actualText: `${question.answerBB} BB`,
+            explain: `Open standard : 3 BB + 1 BB par limpeur (ici ${question.limpers}).`,
+          };
+        }
+        case 'threebet': {
+          // 10 % : à 20 %, oublier le « +1× par suiveur » hors position passait pile dans la tolérance.
+          const tolerance = Math.max(1, question.answerBB * 0.1);
+          return {
+            ok: Math.abs((answer as number) - question.answerBB) <= tolerance + 1e-9,
+            actualText: `≈ ${question.answerBB} BB`,
+            explain: `3-bet : ${question.inPosition ? '3× (en position)' : '4× (hors position)'} son open${question.callers > 0 ? ' + 1× par suiveur' : ''} = ${question.answerBB} BB.`,
+          };
+        }
+        case 'bluff': {
+          const guess = (answer as number) / 100;
+          return {
+            ok: Math.abs(guess - question.answerPct) <= 0.05 + 1e-9,
+            actualText: pct(question.answerPct),
+            explain: `Risque ÷ (risque + pot) : ${question.betBB} ÷ (${question.betBB} + ${question.potBB}) = ${pct(question.answerPct)}. S'il couche moins souvent que ça, ton bluff pur perd.`,
+          };
+        }
+      }
+    }
+    // eslint-disable-next-line no-fallthrough
     case 'pushFold': {
       const ok = answer === question.answer;
       const verb = question.mode === 'push' ? 'push' : 'paie';
