@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../cards';
-import { generateDrill, gradeDrill, requiredForFraction, type DrillQuestion } from '../drill';
+import {
+  generateDrill,
+  gradeDrill,
+  masteryLevel,
+  requiredForFraction,
+  TARGET_MS,
+  type DrillQuestion,
+} from '../drill';
 import { shouldCallPush, shouldPush, type CallChart, type PushChart } from '../pushfold';
 
 describe('requiredForFraction', () => {
@@ -153,6 +160,40 @@ describe('generateDrill', () => {
       kinds.add(generateDrill('mixed', mulberry32(seed)).kind);
     }
     expect(kinds.size).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('masteryLevel — À travailler / En progrès / Acquis', () => {
+  const fast = Array(20).fill(2000); // 2 s, bien sous toutes les cibles
+
+  it('pas assez de données → « Pas encore testé » (badge neutre)', () => {
+    expect(masteryLevel('potOdds', undefined).label).toBe('Pas encore testé');
+    expect(masteryLevel('potOdds', undefined).tone).toBe('none');
+    expect(masteryLevel('potOdds', { attempts: 5, correct: 5, times: [1000] }).label).toBe(
+      'Pas encore testé',
+    );
+  });
+
+  it('précise ET rapide → Acquis', () => {
+    const m = masteryLevel('potOdds', { attempts: 30, correct: 29, times: fast });
+    expect(m.label).toBe('Acquis');
+    expect(m.precision).toBeGreaterThan(0.9);
+  });
+
+  it('précis mais au-dessus de la cible de vitesse → En progrès', () => {
+    const slow = Array(20).fill(TARGET_MS.potOdds + 5000);
+    expect(masteryLevel('potOdds', { attempts: 30, correct: 29, times: slow }).label).toBe(
+      'En progrès',
+    );
+  });
+
+  it('précision moyenne → En progrès ; faible → À travailler', () => {
+    expect(masteryLevel('potOdds', { attempts: 30, correct: 24, times: fast }).label).toBe(
+      'En progrès',
+    );
+    expect(masteryLevel('potOdds', { attempts: 30, correct: 15, times: fast }).label).toBe(
+      'À travailler',
+    );
   });
 });
 

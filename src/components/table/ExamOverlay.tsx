@@ -83,6 +83,8 @@ export function ExamOverlay({ equityReady, askOuts, rangeLabel = null, onSubmit 
             </button>
           ))}
           <input
+            id="exam-required-free"
+            aria-label="Pourcentage requis, saisie libre"
             type="number"
             inputMode="decimal"
             min={0}
@@ -104,6 +106,8 @@ export function ExamOverlay({ equityReady, askOuts, rangeLabel = null, onSubmit 
           </p>
           <div className="flex items-center gap-1.5">
             <input
+              id="exam-outs"
+              aria-label="Nombre d’outs"
               type="number"
               inputMode="numeric"
               min={0}
@@ -123,6 +127,8 @@ export function ExamOverlay({ equityReady, askOuts, rangeLabel = null, onSubmit 
         </p>
         <div className="flex items-center gap-1.5">
           <input
+            id="exam-equity"
+            aria-label="Ton équité en pourcentage"
             type="number"
             inputMode="decimal"
             min={0}

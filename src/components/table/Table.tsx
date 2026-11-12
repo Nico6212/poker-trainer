@@ -898,9 +898,12 @@ export function Table() {
               feedback={{ pick: preflopFeedback.pick, correct: preflopFeedback.correct }}
             />
           )}
-          {aidLevel !== 'decouverte' && lastDecision && !examAnswered && !isPreflop && (
-            <DecisionRecap decision={lastDecision} mode={dMode} bb={bb} />
-          )}
+          {/* Le récap ne vit que sur SA street : après un check au turn, l'action du flop disparaît. */}
+          {aidLevel !== 'decouverte' &&
+            lastDecision &&
+            lastDecision.street === hand.street &&
+            !examAnswered &&
+            !isPreflop && <DecisionRecap decision={lastDecision} mode={dMode} bb={bb} />}
 
           {hand.result ? (
             <ResultBanner
@@ -929,9 +932,10 @@ export function Table() {
               onAction={act}
               mode={dMode}
               callVerdict={isPreflop ? null : callVerdict}
-              // Préflop : on préremplit toujours (0,06 € par défaut) ; en Masqué sans le chip.
+              // Découverte : préremplit au conseil. Masqué/Examen : valeur neutre (ne révèle rien).
               suggestion={heroPushSpot ? null : isPreflop ? advice : panelMask ? null : advice}
               showChip={isPreflop ? showPreflopHints : !panelMask}
+              revealAdvice={aidLevel === 'decouverte'}
               preflopHint={showPreflopHints ? heroPreflop : null}
               hotkeysEnabled={!modalOpen}
             />

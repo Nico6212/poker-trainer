@@ -16,6 +16,7 @@ import {
   handClass,
   type PositionLabel,
 } from './ranges';
+import { median } from './session';
 
 // Mode Drill : spots statiques générés par le moteur pur, pour répéter le geste
 // cible (cote du pot, outs, équité, tailles, ranges) 10 à 20 fois plus densément
@@ -453,6 +454,46 @@ export function gradeDrill(question: DrillQuestion, answer: number | boolean | s
 // --- Stats de drill persistées (précision + temps par paquet) ---
 
 export type DrillStats = Record<string, { attempts: number; correct: number; times: number[] }>;
+
+/** Cible de vitesse par type : « Acquis » = précis ET sous cette médiane. */
+export const TARGET_MS: Record<DrillKind, number> = {
+  potOdds: 10_000,
+  sizeFlash: 5_000,
+  betSize: 8_000,
+  outs: 15_000,
+  equity: 15_000,
+  openRange: 6_000,
+  pushFold: 6_000,
+};
+
+export type Mastery = {
+  label: 'Pas encore testé' | 'À travailler' | 'En progrès' | 'Acquis';
+  tone: 'none' | 'todo' | 'progress' | 'acquired';
+  /** Précision 0-1, pour la mini-jauge. */
+  precision: number;
+};
+
+/** Nombre minimum de réponses avant de juger un niveau de maîtrise. */
+const MASTERY_MIN = 15;
+
+/**
+ * Niveau de maîtrise d'un paquet (précision × vitesse), sur ses dernières réponses.
+ * Acquis = ≥ 90 % ET médiane sous la cible ; En progrès = ≥ 75 % ; sinon À travailler.
+ * Sous 15 réponses, « Pas encore testé » (données insuffisantes, badge neutre).
+ */
+export function masteryLevel(
+  kind: DrillKind,
+  s: { attempts: number; correct: number; times: number[] } | undefined,
+): Mastery {
+  const precision = s && s.attempts > 0 ? s.correct / s.attempts : 0;
+  if (!s || s.attempts < MASTERY_MIN) return { label: 'Pas encore testé', tone: 'none', precision };
+  const med = median(s.times) ?? Infinity;
+  if (precision >= 0.9 && med <= TARGET_MS[kind]) {
+    return { label: 'Acquis', tone: 'acquired', precision };
+  }
+  if (precision >= 0.75) return { label: 'En progrès', tone: 'progress', precision };
+  return { label: 'À travailler', tone: 'todo', precision };
+}
 
 const DRILL_STATS_KEY = 'poker-drill-stats-v1';
 const MAX_TIMES = 50;

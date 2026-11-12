@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RaiseAdvice } from '@/lib/poker/advice';
 import { getDisplayedPot, legalActions, type Action, type HandState } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
-import { betSizeTarget } from '@/lib/poker/sizing';
+import { betSizeTarget, neutralPrefill, prefillAmount } from '@/lib/poker/sizing';
 
 type Props = {
   state: HandState;
@@ -16,6 +16,8 @@ type Props = {
   suggestion?: RaiseAdvice | null;
   /** false : préremplit le montant sans afficher le chip « Conseil » (mode Masqué). */
   showChip?: boolean;
+  /** true (Découverte) : préremplit au conseil ; false (Masqué/Examen) : valeur neutre. */
+  revealAdvice?: boolean;
   /** Verdict de range préflop : met en avant l'action conseillée et grise le limp. */
   preflopHint?: { recommended: ('raise' | 'call' | 'fold')[]; limpDiscouraged: boolean } | null;
   /** false quand une modale est ouverte : les raccourcis ne doivent pas jouer la main derrière. */
@@ -37,6 +39,7 @@ export function ActionBar({
   callVerdict = null,
   suggestion = null,
   showChip = true,
+  revealAdvice = true,
   preflopHint = null,
   hotkeysEnabled = true,
 }: Props) {
@@ -50,14 +53,25 @@ export function ActionBar({
   const potTotal = getDisplayedPot(state);
   const canSize = la.canBet || la.canRaise;
 
-  const [amount, setAmount] = useState(
-    suggestion?.amount ?? (la.canBet ? la.minBet : la.minRaiseTo),
-  );
+  // Défaut : le conseil en Découverte, sinon une valeur NEUTRE qui ne révèle rien
+  // (3 BB à l'ouverture, ½ pot postflop, 3× la mise face à une relance).
+  const minTo = la.canBet ? la.minBet : la.minRaiseTo;
+  const neutral = neutralPrefill({
+    currentBet: state.currentBet,
+    bb,
+    callAmount: la.callAmount,
+    displayedPot: potTotal,
+    minTo,
+    maxTo: la.maxTo,
+  });
+  const defaultAmount = prefillAmount(revealAdvice, suggestion?.amount ?? null, neutral);
 
-  // Nouveau tour de parole : on repart de la taille conseillée, sinon du minimum légal.
+  const [amount, setAmount] = useState(defaultAmount);
+
+  // Nouveau tour de parole : on repart de la taille par défaut.
   useEffect(() => {
-    setAmount(suggestion?.amount ?? (la.canBet ? la.minBet : la.minRaiseTo));
-  }, [la.canBet, la.minBet, la.minRaiseTo, suggestion?.amount]);
+    setAmount(defaultAmount);
+  }, [defaultAmount]);
 
   const clampTarget = (value: number) =>
     Math.min(Math.max(Math.round(value), la.canBet ? la.minBet : la.minRaiseTo), la.maxTo);
@@ -92,7 +106,8 @@ export function ActionBar({
       else if (key === 'c') onAction(la.canCheck ? { type: 'check' } : { type: 'call' });
       else if (key === 'r') submitBetOrRaise();
       else if (key === 's') {
-        if (suggestion && canSize) setAmount(suggestion.amount);
+        // Le raccourci ne révèle le conseil que si le chip est visible (jamais en Masqué).
+        if (suggestion && showChip && canSize) setAmount(suggestion.amount);
       } else {
         const sizing = SIZINGS.find((s) => s.key === key);
         if (sizing && canSize) setAmount(sizeTo(sizing.fraction));
@@ -131,13 +146,15 @@ export function ActionBar({
               {sizing.label}
             </button>
           ))}
-          <label className="ml-auto flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+          <label htmlFor="bet-amount-free" className="ml-auto flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             Libre (€)
             <input
+              id="bet-amount-free"
+              aria-label="Montant de mise libre en euros"
               ref={amountInputRef}
               type="number"
               step="0.01"
-              min={(la.canBet ? la.minBet : la.minRaiseTo) / 100}
+              min={minTo / 100}
               max={la.maxTo / 100}
               value={(amount / 100).toFixed(2)}
               onChange={(e) => setAmount(Math.round(Number(e.target.value) * 100))}

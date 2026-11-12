@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Card } from '../cards';
 import { applyAction, createHand, getDisplayedPot, heroPotOdds, type SeatConfig } from '../engine';
 import { potOddsDetail } from '../pot';
-import { betSizeTarget } from '../sizing';
+import { betSizeTarget, neutralPrefill, prefillAmount } from '../sizing';
 
 const BLINDS = { sb: 1, bb: 2 };
 const BOARD: Card[] = ['2c', '7d', '9s', '4c', 'Jh'];
@@ -82,5 +82,27 @@ describe('betSizeTarget — boutons de taille', () => {
     expect(
       betSizeTarget({ facing: true, currentBet: 6, callAmount: 6, displayedPot: 18, minTo: 12, maxTo: 400, fraction: null }),
     ).toBe(400);
+  });
+});
+
+describe('préremplissage neutre selon le mode d’aide', () => {
+  it('neutralPrefill : 3 BB à l’ouverture, ½ pot postflop, 3× la mise face à une relance', () => {
+    const common = { bb: 2, callAmount: 0, minTo: 2, maxTo: 1000 };
+    // Préflop non relancé (currentBet = bb) → ouverture 3 BB = 6.
+    expect(neutralPrefill({ ...common, currentBet: 2, displayedPot: 3 })).toBe(6);
+    // Postflop sans mise (currentBet 0) → ½ pot de 12 = 6.
+    expect(neutralPrefill({ ...common, currentBet: 0, displayedPot: 12 })).toBe(6);
+    // Face à une relance (currentBet 6) → 3× = 18.
+    expect(neutralPrefill({ ...common, currentBet: 6, displayedPot: 20, minTo: 12 })).toBe(18);
+  });
+
+  it('en Masqué, la valeur préremplie ne révèle pas l’action conseillée', () => {
+    // Spot d'isolation : conseil = 8 (3 BB + 1 par limpeur), neutre = 6 (3 BB flat).
+    const advice = 8;
+    const neutral = 6;
+    // Découverte révèle le conseil ; Masqué/Examen restent sur le neutre.
+    expect(prefillAmount(true, advice, neutral)).toBe(advice);
+    expect(prefillAmount(false, advice, neutral)).toBe(neutral);
+    expect(prefillAmount(false, advice, neutral)).not.toBe(advice);
   });
 });

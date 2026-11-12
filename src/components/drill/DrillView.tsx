@@ -6,8 +6,11 @@ import {
   generateDrill,
   gradeDrill,
   loadDrillStats,
+  masteryLevel,
   recordDrillResult,
+  TARGET_MS,
   type DrillGrade,
+  type DrillKind,
   type DrillPack,
   type DrillQuestion,
   type DrillStats,
@@ -32,29 +35,34 @@ const PACKS: { key: DrillPack; label: string; description: string }[] = [
 
 const PCT_CHIPS = [17, 20, 25, 29, 33, 38, 40, 50];
 
-/** Cible de vitesse par type : le critère « automatique » = précis ET sous la cible. */
-const TARGET_MS: Record<string, number> = {
-  potOdds: 10_000,
-  sizeFlash: 5_000,
-  betSize: 8_000,
-  outs: 15_000,
-  equity: 15_000,
-  openRange: 6_000,
-  pushFold: 6_000,
+const MASTERY_STYLE: Record<string, { text: string; bar: string }> = {
+  none: { text: 'text-neutral-400 dark:text-neutral-500', bar: 'bg-neutral-300 dark:bg-neutral-600' },
+  todo: { text: 'text-red-600 dark:text-red-400', bar: 'bg-red-500' },
+  progress: { text: 'text-amber-600 dark:text-amber-400', bar: 'bg-amber-500' },
+  acquired: { text: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500' },
 };
 
-function masteryChip(
-  kind: string,
-  s: { attempts: number; correct: number; times: number[] } | undefined,
-): { text: string; cls: string } {
-  if (!s || s.attempts < 15) return { text: '⚪ à construire', cls: 'text-neutral-400' };
-  const precision = s.correct / s.attempts;
-  const medianMs = median(s.times) ?? Infinity;
-  if (precision >= 0.9 && medianMs <= (TARGET_MS[kind] ?? Infinity)) {
-    return { text: '🟢 automatique', cls: 'text-emerald-600 dark:text-emerald-400' };
-  }
-  if (precision >= 0.75) return { text: '🟡 en cours', cls: 'text-amber-600 dark:text-amber-400' };
-  return { text: '🔴 à travailler', cls: 'text-red-600 dark:text-red-400' };
+/** Badge de maîtrise + mini-jauge de précision. */
+function MasteryBadge({
+  kind,
+  stats,
+}: {
+  kind: DrillKind;
+  stats: { attempts: number; correct: number; times: number[] } | undefined;
+}) {
+  const m = masteryLevel(kind, stats);
+  const style = MASTERY_STYLE[m.tone];
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`text-xs font-semibold ${style.text}`}>{m.label}</span>
+      <span className="h-1.5 w-12 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+        <span
+          className={`block h-full ${style.bar}`}
+          style={{ width: `${Math.round(m.precision * 100)}%` }}
+        />
+      </span>
+    </span>
+  );
 }
 
 type Mode = 'serie' | 'sprint';
@@ -311,23 +319,25 @@ export function DrillView() {
           </p>
           {PACKS.map((p) => {
             const s = p.key !== 'mixed' ? stats[p.key] : null;
-            const mastery = p.key !== 'mixed' ? masteryChip(p.key, s ?? undefined) : null;
             return (
               <div
                 key={p.key}
                 className="flex items-center justify-between gap-3 rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-neutral-900/70"
               >
                 <div>
-                  <p className="font-semibold">
-                    {p.label}{' '}
-                    {mastery && <span className={`text-xs font-medium ${mastery.cls}`}>{mastery.text}</span>}
+                  <p className="flex flex-wrap items-center gap-2 font-semibold">
+                    {p.label}
+                    {p.key !== 'mixed' && (
+                      <MasteryBadge kind={p.key as DrillKind} stats={s ?? undefined} />
+                    )}
                   </p>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">{p.description}</p>
                   {s && s.attempts > 0 && (
                     <p className="text-xs text-emerald-600 dark:text-emerald-400">
                       {Math.round((s.correct / s.attempts) * 100)} % de réussite ·{' '}
                       {s.times.length > 0 ? `${((median(s.times) ?? 0) / 1000).toFixed(1)} s` : ''}{' '}
-                      · {s.attempts} réponses · cible ≤ {(TARGET_MS[p.key] ?? 0) / 1000} s
+                      · {s.attempts} réponses · cible ≤{' '}
+                      {(p.key !== 'mixed' ? TARGET_MS[p.key] : 0) / 1000} s
                     </p>
                   )}
                 </div>
