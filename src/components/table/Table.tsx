@@ -14,6 +14,7 @@ import {
   type HandState,
 } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
+import { translateHandName } from '@/lib/poker/hand-names';
 import { hitOdds } from '@/lib/poker/outs';
 import {
   preflopHintsVisible,
@@ -116,7 +117,7 @@ function ResultBanner({
             const gain = formatAmount(w.amount, mode, bb);
             return result.wonWithoutShowdown
               ? `${name} remporte ${gain} sans abattage`
-              : `${name} remporte ${gain}${w.handName ? ` avec ${w.handName}` : ''}`;
+              : `${name} remporte ${gain}${w.handName ? ` avec ${translateHandName(w.handName)}` : ''}`;
           })
           .join(' · ')}
       </p>

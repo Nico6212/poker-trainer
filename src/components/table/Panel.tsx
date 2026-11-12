@@ -204,15 +204,7 @@ export function Panel({
   const heroTurn = hand.toActSeat === heroSeat;
   const la = heroTurn ? legalActions(hand) : null;
   const heroOdds = heroPotOdds(hand, heroSeat);
-  const facing =
-    la && la.callAmount > 0 && heroOdds
-      ? {
-          call: la.callAmount,
-          villainBet: villain.streetBet,
-          base: totalNow - villain.streetBet,
-          odds: heroOdds,
-        }
-      : null;
+  const facing = la && la.callAmount > 0 && heroOdds ? { call: la.callAmount, odds: heroOdds } : null;
 
   const onFlopOrTurn = hand.street === 'flop' || hand.street === 'turn';
   const guaranteedTwo =
@@ -231,8 +223,8 @@ export function Panel({
       <Section title="1 · Le pot">
         {facing ? (
           <p>
-            Pot {fmt(facing.base)} + sa mise {fmt(facing.villainBet)} + ton call{' '}
-            {fmt(facing.call)} = <strong>pot final {fmt(facing.odds.finalPot)}</strong>
+            Au milieu {fmt(facing.odds.potBefore)} + ton call {fmt(facing.odds.toCall)} ={' '}
+            <strong>pot final {fmt(facing.odds.finalPot)}</strong>
           </p>
         ) : (
           <p>
@@ -241,7 +233,8 @@ export function Panel({
         )}
       </Section>
 
-      {mask && (
+      {/* Rappel réservé au postflop : préflop, l'examen pose une question de range. */}
+      {mask && hand.street !== 'preflop' && (
         <Section title="Mode examen">
           <p className="text-neutral-500 dark:text-neutral-400">
             Les chiffres sont cachés : fais le calcul de tête à partir du pot et de sa mise.

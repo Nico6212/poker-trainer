@@ -2,6 +2,7 @@
 
 import type { Action, Street } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
+import { translateHandName } from '@/lib/poker/hand-names';
 import type { DecisionRecord, HandRecord } from '@/lib/poker/session';
 import { CardView } from './CardView';
 
@@ -155,7 +156,7 @@ export function HandReview({ record, decisions, mode, onClose }: Props) {
           {record.result.winners
             .map(
               (w) =>
-                `${nameOf(w.seat)} remporte ${formatAmount(w.amount, mode, bb)}${w.handName ? ` avec ${w.handName}` : ''}`,
+                `${nameOf(w.seat)} remporte ${formatAmount(w.amount, mode, bb)}${w.handName ? ` avec ${translateHandName(w.handName)}` : ''}`,
             )
             .join(' · ')}
           {record.result.wonWithoutShowdown ? ' (sans abattage)' : ''}
