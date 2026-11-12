@@ -13,6 +13,10 @@ type Props = {
   callVerdict?: 'good' | 'bad' | null;
   /** Taille de mise conseillée : pré-remplit le montant, chip « Conseil » et touche S. */
   suggestion?: RaiseAdvice | null;
+  /** false : préremplit le montant sans afficher le chip « Conseil » (mode Masqué). */
+  showChip?: boolean;
+  /** Verdict de range préflop : met en avant l'action conseillée et grise le limp. */
+  preflopHint?: { recommended: ('raise' | 'call' | 'fold')[]; limpDiscouraged: boolean } | null;
   /** false quand une modale est ouverte : les raccourcis ne doivent pas jouer la main derrière. */
   hotkeysEnabled?: boolean;
 };
@@ -31,9 +35,15 @@ export function ActionBar({
   mode,
   callVerdict = null,
   suggestion = null,
+  showChip = true,
+  preflopHint = null,
   hotkeysEnabled = true,
 }: Props) {
   const amountInputRef = useRef<HTMLInputElement>(null);
+  const recFold = preflopHint?.recommended.includes('fold') ?? false;
+  const recCall = preflopHint?.recommended.includes('call') ?? false;
+  const recRaise = preflopHint?.recommended.includes('raise') ?? false;
+  const limpGreyed = preflopHint?.limpDiscouraged ?? false;
   const la = useMemo(() => legalActions(state), [state]);
   const bb = state.blinds.bb;
   const potTotal = state.pot + state.players.reduce((sum, p) => sum + p.streetBet, 0);
@@ -95,7 +105,7 @@ export function ActionBar({
     <div className="flex flex-col gap-2 rounded-xl border border-black/10 bg-white/80 p-3 shadow-lg backdrop-blur dark:border-white/10 dark:bg-neutral-900/80">
       {canSize && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {suggestion && (
+          {suggestion && showChip && (
             <button
               type="button"
               onClick={() => setAmount(suggestion.amount)}
@@ -136,29 +146,41 @@ export function ActionBar({
         <button
           type="button"
           onClick={() => onAction({ type: 'fold' })}
-          className="rounded-lg bg-red-600 px-3 py-3 font-semibold text-white hover:bg-red-700"
+          className={`rounded-lg px-3 py-3 font-semibold text-white hover:bg-red-700 ${
+            recFold && !recRaise && !recCall ? 'bg-red-600 ring-2 ring-amber-300' : 'bg-red-600'
+          }`}
         >
           Se coucher <span className="opacity-60">(F)</span>
         </button>
         <button
           type="button"
           onClick={() => onAction(la.canCheck ? { type: 'check' } : { type: 'call' })}
-          className={`rounded-lg px-3 py-3 font-semibold text-white ${
-            callVerdict === 'good'
-              ? 'bg-emerald-600 ring-2 ring-emerald-300 hover:bg-emerald-700'
-              : callVerdict === 'bad'
-                ? 'bg-red-700 ring-2 ring-red-300 hover:bg-red-800'
-                : 'bg-neutral-700 hover:bg-neutral-800'
+          className={`rounded-lg px-3 py-3 font-semibold ${
+            limpGreyed
+              ? 'bg-neutral-300 text-neutral-500 hover:bg-neutral-400 dark:bg-neutral-800 dark:text-neutral-500'
+              : recCall
+                ? 'bg-sky-500 text-white ring-2 ring-amber-300 hover:bg-sky-600'
+                : callVerdict === 'good'
+                  ? 'bg-emerald-600 text-white ring-2 ring-emerald-300 hover:bg-emerald-700'
+                  : callVerdict === 'bad'
+                    ? 'bg-red-700 text-white ring-2 ring-red-300 hover:bg-red-800'
+                    : 'bg-neutral-700 text-white hover:bg-neutral-800'
           }`}
         >
-          {la.canCheck ? 'Check' : `Payer ${formatAmount(la.callAmount, mode, bb)}`}{' '}
+          {la.canCheck
+            ? 'Check'
+            : limpGreyed
+              ? `Limp déconseillé`
+              : `Payer ${formatAmount(la.callAmount, mode, bb)}`}{' '}
           <span className="opacity-60">(C)</span>
         </button>
         <button
           type="button"
           onClick={submitBetOrRaise}
           disabled={!canSize}
-          className="rounded-lg bg-emerald-600 px-3 py-3 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className={`rounded-lg px-3 py-3 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 ${
+            recRaise ? 'bg-emerald-600 ring-2 ring-amber-300' : 'bg-emerald-600'
+          }`}
         >
           {canSize ? raiseLabel : 'Relance impossible'} <span className="opacity-60">(R)</span>
         </button>

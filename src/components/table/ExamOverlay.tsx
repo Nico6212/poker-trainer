@@ -151,6 +151,46 @@ export function ExamOverlay({ equityReady, askOuts, rangeLabel = null, onSubmit 
   );
 }
 
+/** Examen préflop : une seule question de range, pas de cote ni d'équité. */
+export function PreflopExamOverlay({
+  onSubmit,
+}: {
+  onSubmit: (pick: 'raise' | 'call' | 'fold') => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border-2 border-amber-400 bg-white/90 p-4 shadow-lg backdrop-blur dark:bg-neutral-900/90">
+      <h2 className="font-bold">
+        Mode examen — préflop{' '}
+        <span className="text-sm font-normal text-neutral-500">— pense en range</span>
+      </h2>
+      <p className="text-sm font-semibold">Cette main se joue comment depuis ce siège ?</p>
+      <div className="grid grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={() => onSubmit('fold')}
+          className="rounded-lg bg-red-600 px-3 py-3 font-semibold text-white hover:bg-red-700"
+        >
+          Fold
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit('call')}
+          className="rounded-lg bg-sky-500 px-3 py-3 font-semibold text-white hover:bg-sky-600"
+        >
+          Call
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit('raise')}
+          className="rounded-lg bg-emerald-600 px-3 py-3 font-semibold text-white hover:bg-emerald-700"
+        >
+          Relance
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Correction affichée après la validation, avant de jouer l'action. */
 export function ExamResult({ answer }: { answer: ExamAnswer }) {
   const line = (

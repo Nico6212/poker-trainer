@@ -9,6 +9,11 @@ import { legalActions, playerAt, type Action, type HandState } from '@/lib/poker
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
 import { hitOdds } from '@/lib/poker/outs';
 import { potOdds } from '@/lib/poker/pot';
+import {
+  preflopHintsVisible,
+  preflopVerdict,
+  type PreflopVerdict,
+} from '@/lib/poker/preflop-verdict';
 import { pushFoldSpot } from '@/lib/poker/pushfold';
 import { combosForClasses, estimatePreflopRange } from '@/lib/poker/ranges';
 import {
@@ -32,8 +37,8 @@ import {
 import { ActionBar } from './ActionBar';
 import { CardView } from './CardView';
 import { DecisionRecap } from './DecisionRecap';
-import { ExamOverlay, ExamResult } from './ExamOverlay';
-import { Panel } from './Panel';
+import { ExamOverlay, ExamResult, PreflopExamOverlay } from './ExamOverlay';
+import { Panel, PreflopSection } from './Panel';
 import { ReviewQueue } from './ReviewQueue';
 import { Seat } from './Seat';
 import { SessionSummary } from './SessionSummary';
@@ -145,6 +150,18 @@ export function Table() {
   const [showBotCards, setShowBotCards] = useState(false);
   const [aidLevel, setAidLevel] = useState<AidLevel>('masque');
   const [examDone, setExamDone] = useState<{ key: string; answer: ExamAnswer } | null>(null);
+  const [preflopExam, setPreflopExam] = useState<{
+    key: string;
+    pick: 'raise' | 'call' | 'fold';
+    correct: boolean;
+  } | null>(null);
+  // Mode Masqué préflop : verdict photographié à la décision, révélé juste après.
+  const [preflopFeedback, setPreflopFeedback] = useState<{
+    key: string;
+    verdict: PreflopVerdict;
+    pick: 'raise' | 'call' | 'fold';
+    correct: boolean;
+  } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [srsCards, setSrsCards] = useState<SrsCard[]>([]);
@@ -287,6 +304,12 @@ export function Table() {
     [hand],
   );
 
+  // Verdict de range préflop : remplace le verdict équité/cote (plus jamais de limp).
+  const heroPreflop = useMemo(
+    () => (hand ? preflopVerdict(hand, HERO_SEAT) : null),
+    [hand],
+  );
+
   // Dernière action de chaque siège sur la street en cours, depuis l'historique du moteur.
   const lastActions = useMemo(() => {
     const map: Partial<Record<number, Action>> = {};
@@ -303,14 +326,34 @@ export function Table() {
   // volontairement à « Nouvelle session » alors que handId repart à 1.
   const sessionKey = session.data?.startedAt ?? 'boot';
   const decisionKey = hand ? `${sessionKey}:${hand.handId}:${hand.history.length}` : '';
+  const isPreflop = hand?.street === 'preflop';
   const examAnswered = examDone !== null && examDone.key === decisionKey;
-  const examPending = aidLevel === 'examen' && facing !== null && !examAnswered;
-  const panelMask =
-    aidLevel === 'masque'
+  const preflopAnswered = preflopExam !== null && preflopExam.key === decisionKey;
+  // Préflop, l'examen pose « Relance / Call / Fold » (range), pas la cote/équité.
+  const examPreflopPending = aidLevel === 'examen' && isPreflop && heroPreflop !== null && !preflopAnswered;
+  const examPostflopPending =
+    aidLevel === 'examen' && !isPreflop && facing !== null && !examAnswered;
+  // Montre-t-on les indices préflop (verdict, entourage, grisé, chip) AVANT la décision ?
+  const showPreflopHints = preflopHintsVisible(aidLevel, preflopAnswered);
+  const panelMask = isPreflop
+    ? // Préflop : masqué tant qu'on ne montre pas les indices (jamais en Masqué avant décision).
+      !showPreflopHints
+    : aidLevel === 'masque'
       ? true
       : aidLevel === 'examen'
         ? !(facing !== null && examAnswered)
         : false;
+
+  // Le retour Masqué préflop s'efface quand on quitte le préflop ou qu'une
+  // nouvelle décision préflop commence.
+  useEffect(() => {
+    setPreflopFeedback((fb) => {
+      if (!fb) return fb;
+      if (!isPreflop) return null;
+      if (heroPreflop !== null && fb.key !== decisionKey) return null;
+      return fb;
+    });
+  }, [isPreflop, heroPreflop, decisionKey]);
 
   // Chrono de réflexion : démarre quand la parole arrive au héros.
   const turnStartRef = useRef<number | null>(null);
@@ -334,6 +377,17 @@ export function Table() {
   const act = useCallback(
     (action: Action) => {
       if (hand && !hand.result && hand.toActSeat === HERO_SEAT) {
+        // Mode Masqué préflop : on photographie le verdict pour le révéler APRÈS la décision.
+        if (hand.street === 'preflop' && aidLevel === 'masque' && heroPreflop) {
+          const pick: 'raise' | 'call' | 'fold' =
+            action.type === 'fold' ? 'fold' : action.type === 'call' ? 'call' : 'raise';
+          setPreflopFeedback({
+            key: decisionKey,
+            verdict: heroPreflop,
+            pick,
+            correct: heroPreflop.recommended.includes(pick),
+          });
+        }
         const isAggro = action.type === 'bet' || action.type === 'raise';
         if (facing || isAggro) {
           const hero = playerAt(hand, HERO_SEAT);
@@ -409,9 +463,18 @@ export function Table() {
           setExamDone(null);
         }
       }
+      setPreflopExam(null);
       heroAct(action);
     },
-    [hand, facing, equity, session, examAnswered, examDone, heroAct, advice, villainSeat, decisionKey, pushSrsCard],
+    [hand, facing, equity, session, examAnswered, examDone, heroAct, advice, villainSeat, decisionKey, pushSrsCard, aidLevel, heroPreflop],
+  );
+
+  const submitPreflopExam = useCallback(
+    (pick: 'raise' | 'call' | 'fold') => {
+      if (!heroPreflop) return;
+      setPreflopExam({ key: decisionKey, pick, correct: heroPreflop.recommended.includes(pick) });
+    },
+    [heroPreflop, decisionKey],
   );
 
   const submitExam = useCallback(
@@ -553,6 +616,7 @@ export function Table() {
     recordedHandRef.current = 0;
     reclassifiedRef.current = 0;
     setExamDone(null);
+    setPreflopExam(null);
     setSummaryOpen(false);
     resetGame();
   }, [session, resetGame]);
@@ -806,7 +870,31 @@ export function Table() {
           </section>
 
           {examAnswered && facing && <ExamResult answer={examDone!.answer} />}
-          {aidLevel !== 'decouverte' && lastDecision && !examAnswered && (
+          {/* Examen préflop : l'une-ligne suffit (le panneau montre déjà le verdict). */}
+          {preflopAnswered && heroPreflop && (
+            <p
+              className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                preflopExam!.correct
+                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                  : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+              }`}
+            >
+              {preflopExam!.correct ? '✓ Bonne lecture.' : '✗ À revoir.'} Recommandé :{' '}
+              {heroPreflop.recommended
+                .map((a) => (a === 'raise' ? 'Relance' : a === 'call' ? 'Call' : 'Fold'))
+                .join(' ou ')}
+              .
+            </p>
+          )}
+          {/* Masqué préflop : le verdict n'apparaît qu'APRÈS la décision, avec ✓/✗ et grille. */}
+          {preflopFeedback && (
+            <PreflopSection
+              verdict={preflopFeedback.verdict}
+              fmt={(c) => formatAmount(c, dMode, bb)}
+              feedback={{ pick: preflopFeedback.pick, correct: preflopFeedback.correct }}
+            />
+          )}
+          {aidLevel !== 'decouverte' && lastDecision && !examAnswered && !isPreflop && (
             <DecisionRecap decision={lastDecision} mode={dMode} bb={bb} />
           )}
 
@@ -818,7 +906,7 @@ export function Table() {
               hotkeysEnabled={!modalOpen}
               onNext={nextHand}
             />
-          ) : examPending ? (
+          ) : examPostflopPending ? (
             <ExamOverlay
               key={decisionKey}
               equityReady={equity.status === 'ready' && equity.equity !== null}
@@ -829,13 +917,18 @@ export function Table() {
               rangeLabel={equity.rangeLabel}
               onSubmit={submitExam}
             />
+          ) : examPreflopPending ? (
+            <PreflopExamOverlay key={decisionKey} onSubmit={submitPreflopExam} />
           ) : heroTurn ? (
             <ActionBar
               state={hand}
               onAction={act}
               mode={dMode}
-              callVerdict={callVerdict}
-              suggestion={panelMask || heroPushSpot ? null : advice}
+              callVerdict={isPreflop ? null : callVerdict}
+              // Préflop : on préremplit toujours (0,06 € par défaut) ; en Masqué sans le chip.
+              suggestion={heroPushSpot ? null : isPreflop ? advice : panelMask ? null : advice}
+              showChip={isPreflop ? showPreflopHints : !panelMask}
+              preflopHint={showPreflopHints ? heroPreflop : null}
               hotkeysEnabled={!modalOpen}
             />
           ) : (
@@ -852,8 +945,13 @@ export function Table() {
             botSeat={villainSeat}
             equity={equity}
             mode={dMode}
-            advice={panelMask || heroPushSpot ? null : advice}
-            pushSpot={panelMask ? null : heroPushSpot}
+            advice={
+              panelMask || heroPushSpot || (heroPreflop && !heroPreflop.recommended.includes('raise'))
+                ? null
+                : advice
+            }
+            pushSpot={panelMask || heroPreflop ? null : heroPushSpot}
+            preflop={panelMask ? null : heroPreflop}
             mask={panelMask}
           />
         )}

@@ -104,6 +104,67 @@ export const THREEBET_RANGES: Record<PositionLabel, string[]> = {
   BB: ['TT+', 'AQs+', 'AQo+', 'A5s', '76s', '65s'],
 };
 
+// --- Ranges par format de table ---
+// En heads-up, positionOf renvoie 'BTN' pour le bouton (= petite blinde, parle
+// en premier) et 'BB' pour l'autre. On ouvre très large au bouton, on défend
+// largement la grosse blinde.
+
+export type TableFormat = 2 | 3 | 6;
+
+export function formatOf(numPlayers: number): TableFormat {
+  if (numPlayers <= 2) return 2;
+  if (numPlayers <= 3) return 3;
+  return 6;
+}
+
+/** Open SB heads-up ≈ 81 % : on ne jette que les pires dépareillées (72o, 32o, T2o…). */
+const HU_SB_OPEN: string[] = [
+  '22+',
+  'A2s+', 'K2s+', 'Q2s+', 'J2s+', 'T2s+', '92s+', '82s+', '72s+', '62s+', '52s+', '42s+', '32s',
+  'A2o+', 'K2o+', 'Q2o+', 'J4o+', 'T5o+', '95o+', '85o+', '75o+', '64o+', '54o',
+];
+
+/** 3-bet de la BB heads-up face à l'open SB : value + quelques semi-bluffs suités. */
+const HU_BB_3BET: string[] = ['TT+', 'AJs+', 'AQo+', 'A5s', 'A4s', 'KQs', '76s', '65s'];
+
+/** Call de la BB heads-up face à l'open SB. Union avec le 3-bet ≈ 68 % (défense large). */
+const HU_BB_CALL: string[] = [
+  '22+',
+  'A2s+', 'K2s+', 'Q4s+', 'J5s+', 'T6s+', '95s+', '85s+', '75s+', '64s+', '54s', '43s',
+  'A2o+', 'K5o+', 'Q7o+', 'J7o+', 'T7o+', '97o+', '86o+', '76o', '65o',
+];
+
+const OPEN_BY_FORMAT: Record<TableFormat, Partial<Record<PositionLabel, string[]>>> = {
+  2: { BTN: HU_SB_OPEN },
+  3: {}, // Spin & Go — à remplir ; pour l'instant repli sur le 6-max
+  6: OPEN_RANGES,
+};
+
+const CALL_BY_FORMAT: Record<TableFormat, Partial<Record<PositionLabel, string[]>>> = {
+  2: { BB: HU_BB_CALL },
+  3: {},
+  6: CALL_RANGES,
+};
+
+const THREEBET_BY_FORMAT: Record<TableFormat, Partial<Record<PositionLabel, string[]>>> = {
+  2: { BB: HU_BB_3BET },
+  3: {},
+  6: THREEBET_RANGES,
+};
+
+/** Range d'ouverture selon le format, avec repli sur le 6-max si le format est vide. */
+export function openRangeFor(format: TableFormat, position: PositionLabel): string[] {
+  return OPEN_BY_FORMAT[format][position] ?? OPEN_RANGES[position];
+}
+
+export function callRangeFor(format: TableFormat, position: PositionLabel): string[] {
+  return CALL_BY_FORMAT[format][position] ?? CALL_RANGES[position];
+}
+
+export function threeBetRangeFor(format: TableFormat, position: PositionLabel): string[] {
+  return THREEBET_BY_FORMAT[format][position] ?? THREEBET_RANGES[position];
+}
+
 export type RangeEstimate = {
   /** Description courte pour l'affichage, ex. « open BTN ». */
   label: string;
@@ -117,6 +178,7 @@ export type RangeEstimate = {
  */
 export function estimatePreflopRange(state: HandState, seat: number): RangeEstimate {
   const position = positionOf(state, seat);
+  const format = formatOf(state.players.length);
   let raisesBefore = 0;
   let estimate: RangeEstimate | null = null;
 
@@ -127,13 +189,13 @@ export function estimatePreflopRange(state: HandState, seat: number): RangeEstim
       if (isRaise) {
         estimate =
           raisesBefore === 0
-            ? { label: `open ${position}`, classes: expandNotation(OPEN_RANGES[position]) }
-            : { label: `3-bet ${position}`, classes: expandNotation(THREEBET_RANGES[position]) };
+            ? { label: `open ${position}`, classes: expandNotation(openRangeFor(format, position)) }
+            : { label: `3-bet ${position}`, classes: expandNotation(threeBetRangeFor(format, position)) };
       } else if (entry.action.type === 'call') {
         estimate =
           raisesBefore === 0
             ? { label: `limp ${position} : très large`, classes: null }
-            : { label: `paie une relance (${position})`, classes: expandNotation(CALL_RANGES[position]) };
+            : { label: `paie une relance (${position})`, classes: expandNotation(callRangeFor(format, position)) };
       } else if (entry.action.type === 'check' && !estimate) {
         estimate = { label: 'check BB : très large', classes: null };
       }

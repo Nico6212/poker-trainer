@@ -1,12 +1,15 @@
 'use client';
 
+import { useState } from 'react';
 import type { RaiseAdvice } from '@/lib/poker/advice';
 import { legalActions, playerAt, type HandState } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
 import { hitOdds, ruleOf2and4 } from '@/lib/poker/outs';
 import { potOdds } from '@/lib/poker/pot';
+import type { PreflopVerdict } from '@/lib/poker/preflop-verdict';
 import { CHART_LABELS, type PushFoldSpot } from '@/lib/poker/pushfold';
 import { CardView } from './CardView';
+import { RangeGrid } from './RangeGrid';
 import type { EquityInfo } from './useEquity';
 
 type Props = {
@@ -18,9 +21,127 @@ type Props = {
   advice: RaiseAdvice | null;
   /** Spot push/fold du héros (préflop ≤ 13 BB) : remplace le conseil de taille. */
   pushSpot?: PushFoldSpot | null;
+  /** Verdict de range préflop : remplace le verdict équité/cote. */
+  preflop?: PreflopVerdict | null;
   /** Mode examen : cache le % requis, l'équité, les outs, le verdict et le conseil. */
   mask?: boolean;
 };
+
+const ACTION_LABEL: Record<string, string> = {
+  raise: 'Relance',
+  call: 'Call',
+  fold: 'Couche-toi',
+};
+
+/** Comment nommer la position dans la phrase : HU → bouton/SB, sinon le libellé. */
+function positionPhrase(verdict: PreflopVerdict): string {
+  return verdict.headsUp ? 'au bouton / petite blinde (heads-up)' : `depuis ${verdict.position}`;
+}
+
+/** Section « Préflop · ta décision » : verdict de range, pas d'équité/cote. */
+export function PreflopSection({
+  verdict,
+  fmt,
+  feedback = null,
+}: {
+  verdict: PreflopVerdict;
+  fmt: (cents: number) => string;
+  /** Si fourni, affiche un retour ✓/✗ (après la décision, en Masqué/Examen). */
+  feedback?: { pick: 'raise' | 'call' | 'fold'; correct: boolean } | null;
+}) {
+  const [showGrid, setShowGrid] = useState(false);
+  const raise = verdict.recommended.includes('raise');
+  const call = verdict.recommended.includes('call');
+  const fold = verdict.recommended.includes('fold');
+  const where = positionPhrase(verdict);
+  // « Ne complète jamais la petite blinde » seulement en 6-max / 3-max (pas en HU).
+  const neverLimp = verdict.headsUp ? '' : ' Ne complète jamais la petite blinde.';
+
+  let sentence: string;
+  if (verdict.situation === 'push-fold') {
+    sentence = raise
+      ? `Tapis court : ${verdict.hand} ${where} → à tapis.`
+      : `Tapis court : ${verdict.hand} ${where} → couche-toi.`;
+  } else if (verdict.situation === 'open') {
+    sentence = raise
+      ? `${verdict.hand} ${where} : relance à ${fmt(verdict.raiseTo ?? 0)}.${neverLimp}`
+      : `${verdict.hand} ${where} : couche-toi. Hors de la range d'ouverture.`;
+  } else {
+    sentence =
+      raise && call
+        ? `${verdict.hand} face à une relance : 3-bet (relance à ${fmt(verdict.raiseTo ?? 0)}) ou call, les deux se défendent.`
+        : raise
+          ? `${verdict.hand} face à une relance : 3-bet à ${fmt(verdict.raiseTo ?? 0)}.`
+          : call
+            ? `${verdict.hand} face à une relance : paie.`
+            : `${verdict.hand} face à une relance : couche-toi.`;
+  }
+
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border border-emerald-500/40 bg-emerald-50/60 p-3 dark:bg-emerald-950/30">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+          Préflop · ta décision
+        </h3>
+        {feedback && (
+          <span
+            className={`text-xs font-bold ${
+              feedback.correct
+                ? 'text-emerald-600 dark:text-emerald-400'
+                : 'text-red-600 dark:text-red-400'
+            }`}
+          >
+            {feedback.correct ? '✓ Bonne lecture' : '✗ À revoir'}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {verdict.recommended.map((action) => (
+          <span
+            key={action}
+            className={`rounded-md px-2 py-0.5 text-sm font-bold ${
+              action === 'fold'
+                ? 'bg-red-600 text-white'
+                : action === 'call'
+                  ? 'bg-sky-500 text-white'
+                  : 'bg-emerald-600 text-white'
+            }`}
+          >
+            {ACTION_LABEL[action]}
+          </span>
+        ))}
+        {fold && verdict.situation === 'open' && (
+          <span className="text-sm text-neutral-500">— ou relance, jamais limp</span>
+        )}
+      </div>
+      <p className="text-sm">{sentence}</p>
+      {verdict.situation === 'vs-raise' && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Préflop, l’équité ne suffit pas : la position et la suite du coup comptent.
+        </p>
+      )}
+      {verdict.chart.raise.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowGrid((v) => !v)}
+            className="text-xs font-semibold text-emerald-700 underline dark:text-emerald-300"
+          >
+            {showGrid ? 'Masquer la range' : 'Pourquoi ? Voir la range'}
+          </button>
+          {showGrid && (
+            <div className="mt-2">
+              <p className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
+                {verdict.rangeLabel} · ta main surlignée
+              </p>
+              <RangeGrid verdict={verdict} />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
 
@@ -71,10 +192,14 @@ export function Panel({
   mode,
   advice,
   pushSpot = null,
+  preflop = null,
   mask = false,
 }: Props) {
   const bb = hand.blinds.bb;
   const fmt = (cents: number) => formatAmount(cents, mode, bb);
+  // Préflop, le verdict de range remplace la cote et le verdict équité ;
+  // l'équité reste indicative seulement face à une relance.
+  const showEquityPreflop = !preflop || preflop.situation === 'vs-raise';
 
   if (hand.result) {
     return (
@@ -139,7 +264,9 @@ export function Panel({
         </Section>
       )}
 
-      {!mask && facing && required !== null && (
+      {!mask && preflop && <PreflopSection verdict={preflop} fmt={fmt} />}
+
+      {!mask && !preflop && facing && required !== null && (
         <Section title="2 · Ce qu’il te faut">
           <p>
             {sizeText ? `Il mise ${sizeText} → il te faut ` : 'Il te faut '}
@@ -149,7 +276,7 @@ export function Panel({
         </Section>
       )}
 
-      {!mask && (
+      {!mask && showEquityPreflop && (
       <Section title="3 · Ton équité">
         {equity.status === 'ready' && equity.equity !== null ? (
           <p>
@@ -209,7 +336,7 @@ export function Panel({
         </Section>
       )}
 
-      {!mask && facing && required !== null && (
+      {!mask && !preflop && facing && required !== null && (
         <Section title="6 · Le verdict">
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between text-xs">
