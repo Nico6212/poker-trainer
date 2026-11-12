@@ -5,7 +5,7 @@ import type { RaiseAdvice } from '@/lib/poker/advice';
 import { legalActions, playerAt, type HandState } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
 import { hitOdds, ruleOf2and4 } from '@/lib/poker/outs';
-import { potOdds } from '@/lib/poker/pot';
+import { potOdds, requiredSentence } from '@/lib/poker/pot';
 import type { PreflopVerdict } from '@/lib/poker/preflop-verdict';
 import { CHART_LABELS, type PushFoldSpot } from '@/lib/poker/pushfold';
 import { CardView } from './CardView';
@@ -145,26 +145,6 @@ export function PreflopSection({
 
 const pct = (x: number) => `${Math.round(x * 100)} %`;
 
-/** « Il mise ½ pot », si la mise est proche d'une fraction usuelle. */
-function betSizeText(villainBet: number, potBefore: number): string | null {
-  if (potBefore <= 0 || villainBet <= 0) return null;
-  const ratio = villainBet / potBefore;
-  const options: [number, string][] = [
-    [1 / 3, '⅓ pot'],
-    [1 / 2, '½ pot'],
-    [2 / 3, '⅔ pot'],
-    [3 / 4, '¾ pot'],
-    [1, 'pot'],
-    [1.5, '1,5× pot'],
-    [2, '2× pot'],
-  ];
-  let best = options[0];
-  for (const option of options) {
-    if (Math.abs(option[0] - ratio) < Math.abs(best[0] - ratio)) best = option;
-  }
-  return Math.abs(best[0] - ratio) / best[0] <= 0.25 ? best[1] : null;
-}
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-1">
@@ -238,7 +218,6 @@ export function Panel({
     facing && equity.status === 'ready' && equity.equity !== null && required !== null
       ? equity.equity - required
       : null;
-  const sizeText = facing ? betSizeText(facing.villainBet, facing.base) : null;
 
   return (
     <aside className="flex flex-col gap-4 rounded-xl border border-black/10 bg-white/70 p-4 backdrop-blur dark:border-white/10 dark:bg-neutral-900/70">
@@ -269,9 +248,16 @@ export function Panel({
       {!mask && !preflop && facing && required !== null && (
         <Section title="2 · Ce qu’il te faut">
           <p>
-            {sizeText ? `Il mise ${sizeText} → il te faut ` : 'Il te faut '}
-            <strong>{pct(required)}</strong>
-            {`, soit gagner environ 1 fois sur ${Math.max(2, Math.round(1 / required))}.`}
+            {requiredSentence(
+              {
+                toCall: facing.call,
+                potBefore: facing.odds.finalPot - facing.call,
+                finalPot: facing.odds.finalPot,
+                required,
+              },
+              hero.streetBet,
+              fmt,
+            )}
           </p>
         </Section>
       )}
