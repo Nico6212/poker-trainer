@@ -16,6 +16,13 @@ import {
   type DrillStats,
 } from '@/lib/poker/drill';
 import { formatAmount } from '@/lib/poker/format';
+import {
+  dailySeries,
+  loadProgress,
+  recordProgress,
+  summarizeProgress,
+  type DayPoint,
+} from '@/lib/poker/progress';
 import { median } from '@/lib/poker/session';
 import { CardView } from '@/components/table/CardView';
 
@@ -30,6 +37,7 @@ const PACKS: { key: DrillPack; label: string; description: string }[] = [
   { key: 'equity', label: 'Équité', description: 'Estime tes chances contre une range.' },
   { key: 'openRange', label: 'Ranges préflop', description: 'Cette main s’ouvre-t-elle depuis ce siège ?' },
   { key: 'pushFold', label: 'Push / Fold (Spin & MTT)', description: '≤ 13 BB : push ou jette, selon les tableaux ~Nash.' },
+  { key: 'handReading', label: 'Qu’est-ce qui me bat ?', description: 'Lis ta main exacte et repère les dangers du board.' },
   { key: 'mixed', label: 'Mixte (entrelacé)', description: 'Le type de question n’est pas annoncé — comme à la table.' },
 ];
 
@@ -41,6 +49,110 @@ const MASTERY_STYLE: Record<string, { text: string; bar: string }> = {
   progress: { text: 'text-amber-600 dark:text-amber-400', bar: 'bg-amber-500' },
   acquired: { text: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500' },
 };
+
+const pctLabel = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)} %`);
+
+/** Une courbe (barres) : hauteur = réussite, opacité = volume, compteur sous chaque barre. */
+function MiniCurve({
+  series,
+  metric,
+  barClass,
+}: {
+  series: DayPoint[];
+  metric: 'exam' | 'drill';
+  barClass: string;
+}) {
+  const maxCount = Math.max(1, ...series.map((d) => (metric === 'exam' ? d.examCount : d.drillCount)));
+  return (
+    <div className="flex items-end gap-px">
+      {series.map((d) => {
+        const rate = metric === 'exam' ? d.examRate : d.drillRate;
+        const count = metric === 'exam' ? d.examCount : d.drillCount;
+        // Opacité proportionnelle au volume : un jour à 2 réponses paraît plus pâle qu'un jour à 40.
+        const opacity = count === 0 ? 0 : 0.3 + 0.7 * Math.min(1, count / maxCount);
+        return (
+          <div key={d.date} className="flex flex-1 flex-col items-center gap-0.5">
+            <div className="flex h-12 w-full items-end">
+              <span
+                title={`${d.date} · ${rate === null ? 'aucune donnée' : pctLabel(rate)} (${count})`}
+                className={`w-full rounded-sm ${barClass}`}
+                style={{ height: rate === null ? '2px' : `${Math.max(6, rate * 100)}%`, opacity }}
+              />
+            </div>
+            <span className="text-[6px] leading-none text-neutral-400 dark:text-neutral-600">
+              {count || ''}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Progression : courbe Examen (principale) + courbe Drill, sur 30 jours, avec volumes. */
+function ProgressSection() {
+  const [series, setSeries] = useState<DayPoint[] | null>(null);
+  const [week, setWeek] = useState<ReturnType<typeof summarizeProgress> | null>(null);
+  const [month, setMonth] = useState<ReturnType<typeof summarizeProgress> | null>(null);
+
+  useEffect(() => {
+    const data = loadProgress();
+    const now = new Date();
+    setSeries(dailySeries(data, 30, now));
+    setWeek(summarizeProgress(data, 7, now));
+    setMonth(summarizeProgress(data, 30, now));
+  }, []);
+
+  if (!series || !week || !month) return null;
+  const hasData = month.drillCount > 0 || month.examCount > 0;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white/70 p-3 dark:border-white/10 dark:bg-neutral-900/70">
+      <p className="font-semibold">Ta progression</p>
+      {!hasData ? (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Joue quelques drills et des mains en mode Examen : tes courbes apparaîtront ici.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-lg bg-neutral-100 p-2 dark:bg-neutral-800">
+              <p className="text-xs uppercase text-neutral-500">7 jours</p>
+              <p>
+                Examen <strong>{pctLabel(week.examRate)}</strong> ({week.examCount}) · Drill{' '}
+                {pctLabel(week.drillRate)} ({week.drillCount})
+              </p>
+            </div>
+            <div className="rounded-lg bg-neutral-100 p-2 dark:bg-neutral-800">
+              <p className="text-xs uppercase text-neutral-500">30 jours</p>
+              <p>
+                Examen <strong>{pctLabel(month.examRate)}</strong> ({month.examCount}) · Drill{' '}
+                {pctLabel(month.drillRate)} ({month.drillCount})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
+              <span className="h-2.5 w-2.5 rounded-sm bg-sky-500" /> Examen (en situation)
+            </p>
+            <MiniCurve series={series} metric="exam" barClass="bg-sky-500" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+              <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Drill
+            </p>
+            <MiniCurve series={series} metric="drill" barClass="bg-emerald-500" />
+          </div>
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+            Réussite par jour sur 30 jours · chiffre = nombre de questions · barre plus pâle = peu
+            de volume.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
 
 /** Badge de maîtrise + mini-jauge de précision. */
 function MasteryBadge({
@@ -217,6 +329,28 @@ function QuestionPrompt({ question }: { question: DrillQuestion }) {
           </p>
         </div>
       );
+    case 'handReading':
+      return (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-500">Ta main :</span>
+            {question.q.hero.map((c) => (
+              <CardView key={c} card={c} size="sm" />
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-neutral-500">Board :</span>
+            {question.q.board.map((c) => (
+              <CardView key={c} card={c} size="sm" />
+            ))}
+          </div>
+          <p className="text-lg">
+            {question.q.variant === 'yourHand'
+              ? 'Quelle est ta main ?'
+              : 'Qu’est-ce qui peut te battre sur ce board ?'}
+          </p>
+        </div>
+      );
   }
 }
 
@@ -231,11 +365,17 @@ export function DrillView() {
   const [stats, setStats] = useState<DrillStats>({});
   const [sprintEnd, setSprintEnd] = useState<number | null>(null);
   const questionStart = useRef(0);
+  // Spot suivant prégénéré pendant que l'utilisateur répond (l'énumération exacte
+  // de « Qu'est-ce qui me bat ? » ne bloque donc pas la transition).
+  const prefetched = useRef<{ pack: DrillPack; q: DrillQuestion } | null>(null);
 
   useEffect(() => setStats(loadDrillStats()), []);
 
-  const newQuestion = useCallback((currentPack: DrillPack) => {
-    setQuestion(generateDrill(currentPack, Math.random));
+  const newQuestion = useCallback((currentPack: DrillPack, usePrefetch = false) => {
+    const ready =
+      usePrefetch && prefetched.current?.pack === currentPack ? prefetched.current.q : null;
+    prefetched.current = null;
+    setQuestion(ready ?? generateDrill(currentPack, Math.random));
     setGrade(null);
     setNumInput('');
     setPhase('question');
@@ -258,6 +398,7 @@ export function DrillView() {
       setGrade(graded);
       setResults((r) => [...r, { ok: graded.ok, ms: elapsed }]);
       setStats((s) => recordDrillResult(s, question.kind, graded.ok, elapsed));
+      recordProgress({ drillAttempts: 1, drillCorrect: graded.ok ? 1 : 0 });
       setPhase('feedback');
     },
     [question, phase],
@@ -268,8 +409,17 @@ export function DrillView() {
     const sprintOver = sprintEnd !== null && performance.now() >= sprintEnd;
     const serieOver = sprintEnd === null && count >= SERIES_LENGTH;
     if (sprintOver || serieOver) setPhase('finished');
-    else newQuestion(pack);
+    else newQuestion(pack, true);
   }, [results.length, sprintEnd, pack, newQuestion]);
+
+  // Pendant le feedback, on prégénère le spot suivant (hors du chemin d'affichage).
+  useEffect(() => {
+    if (phase !== 'feedback') return;
+    const timer = setTimeout(() => {
+      prefetched.current = { pack, q: generateDrill(pack, Math.random) };
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [phase, pack]);
 
   // Le sprint enchaîne tout seul après un court feedback.
   useEffect(() => {
@@ -317,6 +467,7 @@ export function DrillView() {
             Des séries courtes de spots isolés : 10 à 20 fois plus de répétitions du calcul
             qu'en jouant des mains. Série de {SERIES_LENGTH}, ou sprint de 2 minutes.
           </p>
+          <ProgressSection />
           {PACKS.map((p) => {
             const s = p.key !== 'mixed' ? stats[p.key] : null;
             return (
@@ -497,6 +648,20 @@ export function DrillView() {
                           : 'Je paye'
                         : 'J’ouvre'}
                     </button>
+                  </div>
+                )}
+                {question.kind === 'handReading' && (
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {question.q.options.map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => submit(cat)}
+                        className="rounded-md bg-neutral-200 px-3 py-2 text-sm font-semibold hover:bg-emerald-300 dark:bg-neutral-700 dark:hover:bg-emerald-600"
+                      >
+                        {cat}
+                      </button>
+                    ))}
                   </div>
                 )}
               </>

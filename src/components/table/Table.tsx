@@ -16,6 +16,7 @@ import {
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
 import { translateHandName } from '@/lib/poker/hand-names';
 import { hitOdds } from '@/lib/poker/outs';
+import { recordProgress } from '@/lib/poker/progress';
 import {
   preflopHintsVisible,
   preflopVerdict,
@@ -477,7 +478,9 @@ export function Table() {
   const submitPreflopExam = useCallback(
     (pick: 'raise' | 'call' | 'fold') => {
       if (!heroPreflop) return;
-      setPreflopExam({ key: decisionKey, pick, correct: heroPreflop.recommended.includes(pick) });
+      const correct = heroPreflop.recommended.includes(pick);
+      setPreflopExam({ key: decisionKey, pick, correct });
+      recordProgress({ examAsked: 1, examCorrect: correct ? 1 : 0 });
     },
     [heroPreflop, decisionKey],
   );
@@ -530,6 +533,11 @@ export function Table() {
               }),
           elapsedMs,
         },
+      });
+      const outsOk = outsGuess !== null && Math.abs(outsGuess - equity.outs.length) <= 1;
+      recordProgress({
+        examAsked: outsGuess !== null ? 3 : 2,
+        examCorrect: (requiredOk ? 1 : 0) + (equityOk ? 1 : 0) + (outsGuess !== null && outsOk ? 1 : 0),
       });
     },
     [hand, facing, equity, decisionKey, villainSeat],

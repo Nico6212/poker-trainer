@@ -16,6 +16,12 @@ import {
   handClass,
   type PositionLabel,
 } from './ranges';
+import {
+  generateHandReading,
+  gradeHandReading,
+  type Category,
+  type HandReadingQuestion,
+} from './hand-reading';
 import { median } from './session';
 
 // Mode Drill : spots statiques générés par le moteur pur, pour répéter le geste
@@ -29,7 +35,8 @@ export type DrillKind =
   | 'outs'
   | 'equity'
   | 'openRange'
-  | 'pushFold';
+  | 'pushFold'
+  | 'handReading';
 export type DrillPack = DrillKind | 'mixed';
 
 export type DrillQuestion =
@@ -89,7 +96,8 @@ export type DrillQuestion =
       chartLabel: string;
       stackBB: number;
       answer: boolean;
-    };
+    }
+  | { kind: 'handReading'; q: HandReadingQuestion };
 
 /** La table des tailles standard : mise en fraction du pot → équité requise f/(1+2f). */
 export const SIZE_TABLE: { fraction: number; label: string }[] = [
@@ -122,6 +130,7 @@ const DRILL_KINDS: DrillKind[] = [
   'equity',
   'openRange',
   'pushFold',
+  'handReading',
 ];
 
 /** Cibles « % requis adverse → fraction du pot » sans ambiguïté (table inverse). */
@@ -309,6 +318,8 @@ export function generateDrill(pack: DrillPack, rng: RNG): DrillQuestion {
         answer: shouldCallPush(hand, chart, stackBB) ?? false,
       };
     }
+    case 'handReading':
+      return { kind, q: generateHandReading(rng) };
   }
 }
 
@@ -448,6 +459,10 @@ export function gradeDrill(question: DrillQuestion, answer: number | boolean | s
         } (tableau ~Nash ≤ ${Math.round(question.stackBB)} BB).`,
       };
     }
+    case 'handReading': {
+      const g = gradeHandReading(question.q, answer as Category);
+      return { ok: g.ok, actualText: question.q.answer, explain: g.explain };
+    }
   }
 }
 
@@ -464,6 +479,7 @@ export const TARGET_MS: Record<DrillKind, number> = {
   equity: 15_000,
   openRange: 6_000,
   pushFold: 6_000,
+  handReading: 12_000,
 };
 
 export type Mastery = {
