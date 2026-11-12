@@ -5,10 +5,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { suggestRaise } from '@/lib/poker/advice';
 import { diagnoseEquity, diagnoseRequired } from '@/lib/poker/diagnose';
 import { loadDrillStats } from '@/lib/poker/drill';
-import { legalActions, playerAt, type Action, type HandState } from '@/lib/poker/engine';
+import {
+  getDisplayedPot,
+  heroPotOdds,
+  legalActions,
+  playerAt,
+  type Action,
+  type HandState,
+} from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
 import { hitOdds } from '@/lib/poker/outs';
-import { potOdds } from '@/lib/poker/pot';
 import {
   preflopHintsVisible,
   preflopVerdict,
@@ -275,14 +281,13 @@ export function Table() {
 
   // Face à une mise : montant à payer, pot et équité requise.
   const facing = useMemo(() => {
-    if (!hand || hand.result || hand.toActSeat !== HERO_SEAT) return null;
-    const la = legalActions(hand);
-    if (la.callAmount <= 0) return null;
-    const totalNow = hand.pot + hand.players.reduce((sum, p) => sum + p.streetBet, 0);
+    if (!hand) return null;
+    const odds = heroPotOdds(hand, HERO_SEAT);
+    if (!odds) return null;
     return {
-      callAmount: la.callAmount,
-      totalNow,
-      required: potOdds(la.callAmount, totalNow).required,
+      callAmount: odds.toCall,
+      totalNow: odds.potBefore,
+      required: odds.required,
     };
   }, [hand]);
 
@@ -410,8 +415,7 @@ export function Table() {
             : { isError: false, errorKind: null };
           const sizeAmount = isAggro && 'amount' in action ? action.amount : null;
           const sizeAdvised = isAggro ? (advice?.amount ?? null) : null;
-          const totalNow =
-            facing?.totalNow ?? hand.pot + hand.players.reduce((s, p) => s + p.streetBet, 0);
+          const totalNow = facing?.totalNow ?? getDisplayedPot(hand);
           // Un jam à faible SPR est une ligne standard : on ne le signale pas
           // « hors norme » juste parce que le conseil visait ⅔ pot.
           const heroMaxTo = hero.streetBet + hero.stack;
@@ -853,7 +857,7 @@ export function Table() {
                 )}
               </div>
               <div className="rounded-full bg-black/50 px-3 py-1 text-sm font-semibold text-white">
-                Pot : {formatAmount(hand.pot, mode, bb)}
+                Pot : {formatAmount(getDisplayedPot(hand), dMode, bb)}
               </div>
             </div>
 

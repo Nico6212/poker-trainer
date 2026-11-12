@@ -3,6 +3,7 @@ import type { Card } from '../cards';
 import {
   applyAction,
   createHand,
+  getDisplayedPot,
   legalActions,
   playerAt,
   type HandState,
@@ -33,6 +34,21 @@ function huHand(stacks: [number, number] = [200, 200], deck?: Card[]): HandState
     deck: deck ?? huDeck(['Ah', 'Ad'], ['Kh', 'Kd']),
   });
 }
+
+describe('getDisplayedPot (lot 3 — un seul montant partout)', () => {
+  it('en début de main, le pot affiché inclut les blindes : 0,03 €', () => {
+    // SB 1 + BB 2 = 3 centimes, même si state.pot (streets closes) vaut encore 0.
+    const state = huHand();
+    expect(state.pot).toBe(0);
+    expect(getDisplayedPot(state)).toBe(3);
+  });
+
+  it('additionne pot collecté + mises de la street en cours', () => {
+    let state = huHand();
+    state = applyAction(state, { type: 'call' }); // le bouton complète → SB passe à 2
+    expect(getDisplayedPot(state)).toBe(4); // 2 + 2
+  });
+});
 
 describe('createHand', () => {
   it('heads-up : le bouton poste la petite blinde et parle en premier', () => {

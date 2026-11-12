@@ -2,10 +2,16 @@
 
 import { useState } from 'react';
 import type { RaiseAdvice } from '@/lib/poker/advice';
-import { legalActions, playerAt, type HandState } from '@/lib/poker/engine';
+import {
+  getDisplayedPot,
+  heroPotOdds,
+  legalActions,
+  playerAt,
+  type HandState,
+} from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
 import { hitOdds, ruleOf2and4 } from '@/lib/poker/outs';
-import { potOdds, requiredSentence } from '@/lib/poker/pot';
+import { requiredSentence } from '@/lib/poker/pot';
 import type { PreflopVerdict } from '@/lib/poker/preflop-verdict';
 import { CHART_LABELS, type PushFoldSpot } from '@/lib/poker/pushfold';
 import { CardView } from './CardView';
@@ -194,16 +200,17 @@ export function Panel({
   const activeOpponents = hand.players.filter(
     (p) => p.seat !== heroSeat && p.status !== 'folded',
   ).length;
-  const totalNow = hand.pot + hand.players.reduce((sum, p) => sum + p.streetBet, 0);
+  const totalNow = getDisplayedPot(hand);
   const heroTurn = hand.toActSeat === heroSeat;
   const la = heroTurn ? legalActions(hand) : null;
+  const heroOdds = heroPotOdds(hand, heroSeat);
   const facing =
-    la && la.callAmount > 0
+    la && la.callAmount > 0 && heroOdds
       ? {
           call: la.callAmount,
           villainBet: villain.streetBet,
           base: totalNow - villain.streetBet,
-          odds: potOdds(la.callAmount, totalNow),
+          odds: heroOdds,
         }
       : null;
 

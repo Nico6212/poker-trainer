@@ -1,6 +1,6 @@
 import { Hand } from 'pokersolver';
 import { createDeck, shuffle, type Card, type RNG } from './cards';
-import { computePots, type Pot } from './pot';
+import { computePots, type Pot, type PotOddsDetail } from './pot';
 
 export type Street = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown';
 export type BotProfile = 'station' | 'tight' | 'aggro' | 'reg';
@@ -245,6 +245,31 @@ export function applyAction(state: HandState, action: Action): HandState {
   }
   s.history.push({ street: state.street, seat: p.seat, action });
   return advance(s);
+}
+
+/**
+ * Montant du pot affiché partout (table ET panneau) : le pot collecté sur les
+ * streets closes + toutes les mises de la street en cours. Un seul sélecteur pour
+ * éviter que la table dise « 0,00 € » pendant que le panneau dit « 0,01 € ».
+ */
+export function getDisplayedPot(state: Pick<HandState, 'pot' | 'players'>): number {
+  return state.pot + state.players.reduce((sum, p) => sum + p.streetBet, 0);
+}
+
+/**
+ * Cote du pot que le héros affronte, calculée depuis l'état (chemin complet).
+ * potBefore = le pot AFFICHÉ (tout le milieu, mises comprises) ; on NE réadditionne
+ * PAS les mises de la street, sinon elles seraient comptées deux fois (25 % deviendrait
+ * 14 %). Retourne null si ce n'est pas au héros de parler ou s'il n'y a rien à payer.
+ */
+export function heroPotOdds(state: HandState, heroSeat: number): PotOddsDetail | null {
+  if (state.result || state.toActSeat !== heroSeat) return null;
+  const la = legalActions(state);
+  if (la.callAmount <= 0) return null;
+  const toCall = la.callAmount;
+  const potBefore = getDisplayedPot(state);
+  const finalPot = potBefore + toCall;
+  return { toCall, potBefore, finalPot, required: toCall / finalPot };
 }
 
 /** Siège occupé suivant dans le sens horaire (sert à faire tourner le bouton). */

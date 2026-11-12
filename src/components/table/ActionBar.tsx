@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RaiseAdvice } from '@/lib/poker/advice';
-import { legalActions, type Action, type HandState } from '@/lib/poker/engine';
+import { getDisplayedPot, legalActions, type Action, type HandState } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
+import { betSizeTarget } from '@/lib/poker/sizing';
 
 type Props = {
   state: HandState;
@@ -46,7 +47,7 @@ export function ActionBar({
   const limpGreyed = preflopHint?.limpDiscouraged ?? false;
   const la = useMemo(() => legalActions(state), [state]);
   const bb = state.blinds.bb;
-  const potTotal = state.pot + state.players.reduce((sum, p) => sum + p.streetBet, 0);
+  const potTotal = getDisplayedPot(state);
   const canSize = la.canBet || la.canRaise;
 
   const [amount, setAmount] = useState(
@@ -61,12 +62,16 @@ export function ActionBar({
   const clampTarget = (value: number) =>
     Math.min(Math.max(Math.round(value), la.canBet ? la.minBet : la.minRaiseTo), la.maxTo);
 
-  const sizeTo = (fraction: number | null): number => {
-    if (fraction === null) return la.maxTo;
-    if (la.canBet) return clampTarget(potTotal * fraction);
-    // Relance « f × pot » : la mise en cours + la fraction du pot une fois le call payé.
-    return clampTarget(state.currentBet + (potTotal + la.callAmount) * fraction);
-  };
+  const sizeTo = (fraction: number | null): number =>
+    betSizeTarget({
+      facing: !la.canBet, // canBet ⇔ personne n'a misé (on ouvre)
+      currentBet: state.currentBet,
+      callAmount: la.callAmount,
+      displayedPot: potTotal,
+      minTo: la.canBet ? la.minBet : la.minRaiseTo,
+      maxTo: la.maxTo,
+      fraction,
+    });
 
   const submitBetOrRaise = () => {
     if (!canSize) return;
