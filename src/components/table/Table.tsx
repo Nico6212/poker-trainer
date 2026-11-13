@@ -731,6 +731,12 @@ export function Table() {
           >
             Drill
           </Link>
+          <Link
+            href="/import"
+            className="rounded-md border border-sky-500 px-2 py-1 text-xs font-semibold text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950"
+          >
+            Import
+          </Link>
           <button
             type="button"
             onClick={() => setSetupOpen(true)}
