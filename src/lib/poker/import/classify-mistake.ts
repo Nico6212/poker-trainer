@@ -39,6 +39,11 @@ export const JAM_WEAK = 0.4;
 /** Au-dessus de ~⅓ pot, l'agression est value-heavy (range nuttée) ; en dessous, elle est large. */
 const NUTTED_PRESSURE = 0.3;
 
+/** Affichage d'équité : jamais « 0 % » — sous 5 points on écrit « < 5 % ». */
+export function equityLabel(equity: number): string {
+  return equity < 0.05 ? '< 5 %' : `${Math.round(equity * 100)} %`;
+}
+
 /**
  * Combos adverses « population NL2 ». Une agression sizeable (nutted=true) est très
  * orientée valeur ; une petite agression (nutted=false) → range large (on renvoie []
@@ -324,6 +329,13 @@ export function classifySpot(
       nutted,
       jamCall: isJam, // la range qui PAIE un tapis est plus large (overpairs, TP, tirages)
     });
+    villainRangeDesc = isJam
+      ? 'Contre la range qui paie un tapis à NL2 (value + top paire / 2ᵉ paire, gros tirages).'
+      : nutted
+        ? `Contre la range de value NL2 (brelans+, deux paires sur board sec${
+            ctx.preAggressor ? ', overpairs/top paire gros kicker' : ''
+          }).`
+        : 'Contre une range large (petite agression, peu définie).';
   }
   const seed =
     [...spot.heroCards, ...spot.board].join('').split('').reduce((s, c) => s * 31 + c.charCodeAt(0), 7) >>>
@@ -343,12 +355,12 @@ export function classifySpot(
       return strongAggression
         ? mk(
             'call-raise-faible',
-            `Call derrière la range de value (${Math.round(equity * 100)} % pour ${Math.round(required * 100)} % requis) face à ${facingLabel(spot.facing)}.`,
+            `Call derrière la range de value (${equityLabel(equity)} pour ${Math.round(required * 100)} % requis) face à ${facingLabel(spot.facing)}.`,
             { equity, required, villainRange: villainRangeDesc },
           )
         : mk(
             'call-sans-cote',
-            `Call sans la cote : ${Math.round(equity * 100)} % pour ${Math.round(required * 100)} % requis.`,
+            `Call sans la cote : ${equityLabel(equity)} pour ${Math.round(required * 100)} % requis.`,
             { equity, required, villainRange: villainRangeDesc },
           );
     }
@@ -359,7 +371,7 @@ export function classifySpot(
     if (equity >= required + FOLD_MARGIN) {
       return mk(
         'fold-avec-cote',
-        `Fold avec la cote : ${Math.round(equity * 100)} % pour ${Math.round(required * 100)} % requis.`,
+        `Fold avec la cote : ${equityLabel(equity)} pour ${Math.round(required * 100)} % requis.`,
         { equity, required, villainRange: villainRangeDesc },
       );
     }
@@ -370,8 +382,8 @@ export function classifySpot(
   if (equity < JAM_WEAK) {
     return mk(
       'jam-main-moyenne',
-      `Tapis avec ${Math.round(equity * 100)} % d'équité contre la range qui paie.`,
-      { equity, required },
+      `Tapis avec ${equityLabel(equity)} d'équité contre la range qui paie.`,
+      { equity, required, villainRange: villainRangeDesc },
     );
   }
   return null;

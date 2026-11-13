@@ -1,4 +1,4 @@
-import type { MistakeType } from './classify-mistake';
+import { equityLabel, type MistakeType } from './classify-mistake';
 import type { StoredMistake } from './db';
 
 // Transforme une erreur importée en question de décision rejouable : on te remet
@@ -29,9 +29,10 @@ const OPEN = 'Ouvrir (relancer)';
 
 export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
   // Chiffres d'équité/cote, une seule fois (le detail du classifieur ne les répète plus ici).
-  const eq = pct(m.equity);
+  // Jamais « 0 % » : equityLabel écrit « < 5 % » sous 5 points.
+  const eq = m.equity === undefined ? '?' : equityLabel(m.equity);
   const req = pct(m.required);
-  const range = m.villainRange ? ` ${m.villainRange}` : ''; // ligne river retenue, si présente
+  const range = m.villainRange ? ` ${m.villainRange}` : ''; // range retenue, toujours jointe si dispo
 
   switch (m.type as MistakeType) {
     case 'call-sans-cote':
@@ -43,7 +44,9 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         correct: FOLD,
         played: PLAY,
         explain: `Ton équité (${eq}) est sous la cote requise (${req}) : tu paies trop cher${
-          m.equity === 0 ? ' (tu ne bats aucune main de la range de value)' : ''
+          m.equity !== undefined && m.equity < 0.05
+            ? ' (tu ne bats quasiment aucune main de la range de value)'
+            : ''
         }.${range}`,
       };
     case 'fold-avec-cote':
@@ -62,7 +65,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [JAM, CONTROL],
         correct: CONTROL,
         played: JAM,
-        explain: `Tapis avec seulement ${eq} d'équité contre la range qui paie — trop peu pour tout mettre dedans.`,
+        explain: `Tapis avec seulement ${eq} d'équité contre la range qui paie — trop peu pour tout mettre dedans.${range}`,
       };
     case '4bet-call':
       return {

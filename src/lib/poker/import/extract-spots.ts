@@ -46,6 +46,8 @@ export type HeroSpot = {
   /** Taille « to » de la relance affrontée (pour les règles de sizing). */
   facedRaiseTo: number;
   heroAction: HeroAction;
+  /** Index de la décision du héros dans hand.actions (pour rejouer l'historique AVANT). */
+  actionIndex: number;
 };
 
 type SeatState = { streetInvested: number; totalInvested: number; stack: number; folded: boolean };
@@ -83,7 +85,8 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
   const potNow = () => [...state.values()].reduce((sum, s) => sum + s.totalInvested, 0);
   const playersIn = () => [...state.values()].filter((s) => !s.folded).length;
 
-  for (const action of hand.actions) {
+  for (let actionIdx = 0; actionIdx < hand.actions.length; actionIdx++) {
+    const action = hand.actions[actionIdx];
     if (action.street !== street) {
       street = action.street;
       resetStreet();
@@ -150,6 +153,7 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
           toAmount: action.toAmount,
           allIn: action.allIn,
         },
+        actionIndex: actionIdx,
       });
     }
 

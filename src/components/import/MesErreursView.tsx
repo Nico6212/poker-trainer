@@ -119,6 +119,122 @@ function HandReplay({ hand }: { hand: ParsedHand }) {
   );
 }
 
+// Positions clockwise depuis la SB (le bouton est à part). Suffisant jusqu'au 9-max.
+const NON_BTN: Record<number, string[]> = {
+  3: ['SB', 'BB'],
+  4: ['SB', 'BB', 'UTG'],
+  5: ['SB', 'BB', 'UTG', 'CO'],
+  6: ['SB', 'BB', 'UTG', 'HJ', 'CO'],
+  7: ['SB', 'BB', 'UTG', 'LJ', 'HJ', 'CO'],
+  8: ['SB', 'BB', 'UTG', 'UTG+1', 'LJ', 'HJ', 'CO'],
+  9: ['SB', 'BB', 'UTG', 'UTG+1', 'MP', 'LJ', 'HJ', 'CO'],
+};
+
+function positionMap(hand: ParsedHand): Map<number, string> {
+  const occupied = hand.seats.map((s) => s.seat).sort((a, b) => a - b);
+  const n = occupied.length;
+  const map = new Map<number, string>();
+  if (n === 2) {
+    for (const s of occupied) map.set(s, s === hand.buttonSeat ? 'SB' : 'BB');
+    return map;
+  }
+  const btnIdx = occupied.indexOf(hand.buttonSeat);
+  if (btnIdx < 0) return map;
+  const afterBtn = [...occupied.slice(btnIdx + 1), ...occupied.slice(0, btnIdx)]; // SB → CO
+  const labels = NON_BTN[n] ?? afterBtn.map((_, i) => `P${i + 1}`);
+  afterBtn.forEach((seat, i) => map.set(seat, labels[i] ?? `P${i + 1}`));
+  map.set(hand.buttonSeat, 'BTN');
+  return map;
+}
+
+/**
+ * L'action qui définit le spot, mise en évidence. On privilégie le signal le plus fort :
+ * un check-raise, sinon une relance, sinon la dernière mise adverse avant la décision.
+ */
+function keyActionLabel(hand: ParsedHand, upto: number): string | null {
+  type Key = { type: 'bet' | 'raise' | 'check-raise'; street: ParsedStreet };
+  let lastBetOrRaise: Key | null = null;
+  let lastCheckRaise: Key | null = null;
+  let lastRaise: Key | null = null;
+  let street: ParsedStreet | null = null;
+  let checked = new Set<number>();
+  for (let i = 0; i < upto && i < hand.actions.length; i++) {
+    const a = hand.actions[i];
+    if (a.street !== street) {
+      street = a.street;
+      checked = new Set();
+    }
+    if (a.seat !== hand.heroSeat && (a.type === 'bet' || a.type === 'raise')) {
+      const isCR = a.type === 'raise' && checked.has(a.seat);
+      const key: Key = { type: isCR ? 'check-raise' : a.type, street: a.street };
+      lastBetOrRaise = key;
+      if (isCR) lastCheckRaise = key;
+      else if (a.type === 'raise') lastRaise = key;
+    }
+    if (a.type === 'check') checked.add(a.seat);
+  }
+  const key = lastCheckRaise ?? lastRaise ?? lastBetOrRaise;
+  if (!key) return null;
+  const verb = key.type === 'check-raise' ? 'Check-raise' : key.type === 'raise' ? 'Relance' : 'Mise';
+  return `${verb} ${STREET_LABEL[key.street].toLowerCase()}`;
+}
+
+/** Historique de la main AVANT la décision du héros (positions, mises, action clé). */
+function PreDecision({ hand, upto }: { hand: ParsedHand; upto: number }) {
+  const pos = positionMap(hand);
+  const streets: ParsedStreet[] = ['preflop', 'flop', 'turn', 'river'];
+  const acts = hand.actions.slice(0, upto);
+  const key = keyActionLabel(hand, upto);
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-black/10 bg-neutral-50 p-2 text-sm dark:border-white/10 dark:bg-neutral-950/50">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold uppercase text-neutral-500">Déroulé</span>
+        {key && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+            ⚡ {key}
+          </span>
+        )}
+      </div>
+      {streets.map((street) => {
+        const sActs = acts.filter((a) => a.street === street);
+        if (sActs.length === 0) return null;
+        const board = boardUpTo(hand, street);
+        const checked = new Set<number>();
+        return (
+          <div key={street} className="border-t border-black/5 pt-1 dark:border-white/5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase text-neutral-500">{STREET_LABEL[street]}</span>
+              {board.map((c) => (
+                <CardBadge key={c} card={c} />
+              ))}
+            </div>
+            <ul className="mt-0.5 space-y-0.5">
+              {sActs.map((a, i) => {
+                const isHero = a.seat === hand.heroSeat;
+                const isCR = a.type === 'raise' && checked.has(a.seat);
+                if (a.type === 'check') checked.add(a.seat);
+                const aggressive = !isHero && (a.type === 'bet' || a.type === 'raise');
+                const who = isHero ? 'Héros' : pos.get(a.seat) ?? `S${a.seat}`;
+                return (
+                  <li
+                    key={i}
+                    className={`flex gap-2 rounded px-1 ${
+                      isHero ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''
+                    } ${aggressive ? 'bg-amber-100/70 dark:bg-amber-900/30' : ''}`}
+                  >
+                    <span className="min-w-[2.75rem] shrink-0 text-neutral-500">{who}</span>
+                    <span>{isCR ? `check-raise à ${euro(a.toAmount ?? a.amount)}` : actionText(a)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MesErreursView() {
   const [now] = useState(() => Date.now());
   const [mistakes, setMistakes] = useState<StoredMistake[] | null>(null);
@@ -134,19 +250,17 @@ export function MesErreursView() {
   }, [now]);
 
   const current = mistakes?.[idx];
+  const currentHandId = current?.handId;
   const question = useMemo(() => (current ? mistakeQuestion(current) : null), [current]);
   const costText = current ? formatCost(mistakeCost(current), isCostEstimate(current.type)) : '';
 
   useEffect(() => {
+    // La main est chargée en amont : le déroulé est visible AVANT la question.
     setChosen(null);
-    setHand(null);
     setShowHand(false);
-  }, [idx]);
-
-  async function revealHand(handId: string) {
-    setShowHand(true);
-    if (!hand) setHand((await getHand(handId)) ?? null);
-  }
+    setHand(null);
+    if (currentHandId) getHand(currentHandId).then((h) => setHand(h ?? null));
+  }, [idx, currentHandId]);
 
   function answer(option: string) {
     if (chosen || !question || !current) return;
@@ -265,6 +379,9 @@ export function MesErreursView() {
               </>
             )}
           </div>
+          {hand && typeof current.spot.actionIndex === 'number' && (
+            <PreDecision hand={hand} upto={current.spot.actionIndex} />
+          )}
           {question.decision && current.spot.bb > 0 && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Pot {(current.spot.potBefore / current.spot.bb).toFixed(1)} BB · à payer{' '}
@@ -320,10 +437,10 @@ export function MesErreursView() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => (showHand ? setShowHand(false) : revealHand(current.handId))}
+                  onClick={() => setShowHand((v) => !v)}
                   className="rounded-md border border-neutral-300 px-3 py-1 text-xs font-semibold hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
                 >
-                  {showHand ? 'Masquer la main' : 'Revoir la main'}
+                  {showHand ? 'Masquer la main' : 'Revoir la main complète (abattage)'}
                 </button>
                 <button
                   type="button"

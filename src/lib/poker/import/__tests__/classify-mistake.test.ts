@@ -23,6 +23,7 @@ function spot(p: Partial<HeroSpot> & { heroCards: [Card, Card]; heroAction: Hero
     villainAllIn: false,
     aggressorSeat: 1,
     facedRaiseTo: 0,
+    actionIndex: 0,
     ...p,
   };
 }

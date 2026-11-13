@@ -28,11 +28,11 @@ describe('mistakeQuestion', () => {
     expect(q.explain.split('30 %').length - 1).toBe(1);
   });
 
-  it('équité 0 % → explication explicite (ne bat aucune main de value)', () => {
+  it('équité très basse → « < 5 % » (jamais « 0 % ») + explication', () => {
     const q = mistakeQuestion({ ...base, type: 'call-sans-cote', equity: 0, required: 0.24 });
-    expect(q.explain).toContain('0 %');
-    expect(q.explain).toContain('aucune main');
-    expect(q.explain.split('0 %').length - 1).toBe(1);
+    expect(q.explain).toContain('< 5 %');
+    expect(q.explain).not.toContain('0 %');
+    expect(q.explain).toContain('quasiment aucune main');
   });
 
   it('affiche la ligne river retenue si présente', () => {
