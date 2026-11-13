@@ -35,6 +35,17 @@ describe('mistakeQuestion', () => {
     expect(q.explain.split('0 %').length - 1).toBe(1);
   });
 
+  it('affiche la ligne river retenue si présente', () => {
+    const q = mistakeQuestion({
+      ...base,
+      type: 'call-sans-cote',
+      equity: 0.1,
+      required: 0.3,
+      villainRange: 'Contre un durcissement au turn + mise river : deux paires, brelans.',
+    });
+    expect(q.explain).toContain('durcissement au turn');
+  });
+
   it('fold avec cote → la bonne action est de payer', () => {
     const q = mistakeQuestion({ ...base, type: 'fold-avec-cote', equity: 0.4, required: 0.25 });
     expect(q.correct).toBe('Payer');

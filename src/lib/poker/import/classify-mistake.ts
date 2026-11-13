@@ -25,6 +25,8 @@ export type Mistake = {
   spot: HeroSpot;
   equity?: number;
   required?: number;
+  /** Range retenue pour l'équité (ex. la ligne river modélisée), affichée au rejeu. */
+  villainRange?: string;
 };
 
 const EQUITY_ITERS = 6000;
@@ -160,10 +162,77 @@ function handClassOf(cards: [Card, Card]): string {
   return a === b ? `${a}${a}` : '';
 }
 
+// --- Range river : dépend de la LIGNE de l'adversaire, pas d'un réglage global ---
+//  passive  : il a seulement payé/checké avant puis mise la river → value élargie + bluffs.
+//  hardened : il a relancé ou check-raisé au turn puis mise/tapis river → strict two-pair+.
+//  raise    : il relance ou check-raise la river → strict, la plus serrée (brelan+).
+type RiverLine = 'passive' | 'hardened' | 'raise';
+
+export const RIVER_LINE_DESC: Record<RiverLine, string> = {
+  passive:
+    'Contre une ligne passive puis mise river : top paire / 2ᵉ paire bon kicker, deux paires, brelans, quintes, couleurs, + ~15 % de bluffs (tirages ratés).',
+  hardened:
+    'Contre un durcissement au turn (relance/check-raise) + mise ou tapis river : deux paires, brelans, quintes, couleurs.',
+  raise: 'Contre une relance/check-raise river : value la plus serrée (brelans, quintes, couleurs, fulls).',
+};
+
+const RIVER_BLUFF_RATIO = 0.15;
+
+function genuineTwoPair(combo: [Card, Card], boardRanks: Set<string>): boolean {
+  return (
+    boardRanks.has(combo[0][0]) && boardRanks.has(combo[1][0]) && combo[0][0] !== combo[1][0]
+  );
+}
+
+/**
+ * Range qui mise/relance la river selon la ligne. Pour la ligne passive on mélange ~15 %
+ * de bluffs (hauteurs = tirages ratés) : contre une main faite, le héros les bat tous.
+ */
+function riverVillainRange(board: Card[], dead: Card[], line: RiverLine): [Card, Card][] {
+  const deadSet = new Set<Card>([...board, ...dead]);
+  const deck = createDeck().filter((c) => !deadSet.has(c));
+  const boardRanks = new Set(board.map((c) => c[0]));
+  const vals = board.map((c) => rankValue(c[0] as Rank)).sort((a, b) => b - a);
+  const topV = vals[0] ?? 0;
+  const secondV = vals.find((v) => v < topV) ?? -1;
+
+  const value: [Card, Card][] = [];
+  const bluffs: [Card, Card][] = [];
+  for (let i = 0; i < deck.length; i++) {
+    for (let j = i + 1; j < deck.length; j++) {
+      const combo: [Card, Card] = [deck[i], deck[j]];
+      const cat = categoryRank(categoryOf([...combo, ...board]));
+
+      let include = cat >= 3; // brelan+ (toutes les lignes)
+      if (!include && line !== 'raise' && cat === 2 && genuineTwoPair(combo, boardRanks)) {
+        include = true; // deux paires : lignes passive & hardened
+      }
+      if (!include && line === 'passive' && cat === 1) {
+        const pairsTop = combo.some((c) => rankValue(c[0] as Rank) === topV);
+        const pairs2nd = combo.some((c) => rankValue(c[0] as Rank) === secondV);
+        const goodKicker = combo.some((c) => c[0] === 'A' || c[0] === 'K' || c[0] === 'Q');
+        if (pairsTop || (pairs2nd && goodKicker)) include = true;
+      }
+      if (include) value.push(combo);
+      else if (line === 'passive' && cat === 0) bluffs.push(combo); // hauteur = bluff potentiel
+    }
+  }
+
+  if (line !== 'passive' || value.length === 0 || bluffs.length === 0) return value;
+
+  // Sous-échantillonne les bluffs pour peser ~15 % de la range finale.
+  const nBluff = Math.min(bluffs.length, Math.round((value.length * RIVER_BLUFF_RATIO) / (1 - RIVER_BLUFF_RATIO)));
+  if (nBluff <= 0) return value;
+  const step = Math.max(1, Math.floor(bluffs.length / nBluff));
+  const chosen: [Card, Card][] = [];
+  for (let k = 0; k < bluffs.length && chosen.length < nBluff; k += step) chosen.push(bluffs[k]);
+  return [...value, ...chosen];
+}
+
 /** Un spot préflop ou postflop → une erreur, ou null. ctx.preAggressor = l'agresseur a 3-bet+ préflop. */
 export function classifySpot(
   spot: HeroSpot,
-  ctx: { preAggressor: boolean },
+  ctx: { preAggressor: boolean; turnHardened?: boolean },
   rng?: RNG,
 ): Mistake | null {
   const mk = (type: MistakeType, detail: string, extra?: Partial<Mistake>): Mistake => ({
@@ -232,14 +301,30 @@ export function classifySpot(
   if (!needsEquity) return null;
 
   const isJam = spot.heroAction.type === 'bet' || spot.heroAction.type === 'raise';
-  // Un call face à une petite agression → range large ; sinon nuttée. La range qui PAIE
-  // un tapis du héros est toujours value.
-  const nutted = isJam ? true : pressure >= NUTTED_PRESSURE;
-  const villain = nl2VillainRange(spot.board, spot.heroCards, {
-    preAggressor: ctx.preAggressor,
-    nutted,
-    jamCall: isJam, // la range qui PAIE un tapis est plus large (overpairs, TP, tirages)
-  });
+
+  // Sur la river, un call/fold face à une mise ou relance : la range dépend de la LIGNE
+  // du vilain (passive → élargie + bluffs ; durcie au turn → strict ; relance river → serré).
+  let villainRangeDesc: string | undefined;
+  let villain: [Card, Card][];
+  if (spot.street === 'river' && !isJam && spot.facingBet) {
+    const line: RiverLine =
+      spot.facing === 'raisePostflop' || spot.facing === 'checkRaise'
+        ? 'raise'
+        : ctx.turnHardened
+          ? 'hardened'
+          : 'passive';
+    villain = riverVillainRange(spot.board, spot.heroCards, line);
+    villainRangeDesc = RIVER_LINE_DESC[line];
+  } else {
+    // Un call face à une petite agression → range large ; sinon nuttée. La range qui PAIE
+    // un tapis du héros est toujours value.
+    const nutted = isJam ? true : pressure >= NUTTED_PRESSURE;
+    villain = nl2VillainRange(spot.board, spot.heroCards, {
+      preAggressor: ctx.preAggressor,
+      nutted,
+      jamCall: isJam, // la range qui PAIE un tapis est plus large (overpairs, TP, tirages)
+    });
+  }
   const seed =
     [...spot.heroCards, ...spot.board].join('').split('').reduce((s, c) => s * 31 + c.charCodeAt(0), 7) >>>
     0;
@@ -259,12 +344,12 @@ export function classifySpot(
         ? mk(
             'call-raise-faible',
             `Call derrière la range de value (${Math.round(equity * 100)} % pour ${Math.round(required * 100)} % requis) face à ${facingLabel(spot.facing)}.`,
-            { equity, required },
+            { equity, required, villainRange: villainRangeDesc },
           )
         : mk(
             'call-sans-cote',
             `Call sans la cote : ${Math.round(equity * 100)} % pour ${Math.round(required * 100)} % requis.`,
-            { equity, required },
+            { equity, required, villainRange: villainRangeDesc },
           );
     }
     return null;
@@ -275,7 +360,7 @@ export function classifySpot(
       return mk(
         'fold-avec-cote',
         `Fold avec la cote : ${Math.round(equity * 100)} % pour ${Math.round(required * 100)} % requis.`,
-        { equity, required },
+        { equity, required, villainRange: villainRangeDesc },
       );
     }
     return null;
@@ -320,11 +405,22 @@ function isPreAggressor(hand: ParsedHand, aggressorSeat: number | null): boolean
   return false;
 }
 
+/** Un adversaire a-t-il durci au turn (relance ou check-raise) ? (une relance = bet puis raise). */
+function turnHardened(hand: ParsedHand): boolean {
+  return hand.actions.some(
+    (a) => a.street === 'turn' && a.type === 'raise' && a.seat !== hand.heroSeat,
+  );
+}
+
 /** Classe toutes les décisions du héros d'une main importée. */
 export function classifyHand(hand: ParsedHand): Mistake[] {
   const out: Mistake[] = [];
+  const hardened = turnHardened(hand);
   for (const spot of extractSpots(hand)) {
-    const m = classifySpot(spot, { preAggressor: isPreAggressor(hand, spot.aggressorSeat) });
+    const m = classifySpot(spot, {
+      preAggressor: isPreAggressor(hand, spot.aggressorSeat),
+      turnHardened: hardened,
+    });
     if (m) out.push(m);
   }
   return out;

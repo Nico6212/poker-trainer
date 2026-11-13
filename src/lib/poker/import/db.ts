@@ -17,6 +17,7 @@ export type StoredMistake = {
   detail: string;
   equity?: number;
   required?: number;
+  villainRange?: string;
   spot: Mistake['spot'];
   createdAt: number;
 } & Review;
@@ -97,6 +98,7 @@ export async function saveImport(
         detail: m.detail,
         equity: m.equity,
         required: m.required,
+        villainRange: m.villainRange,
         spot: m.spot,
         createdAt: prev?.createdAt ?? now,
         ...review,

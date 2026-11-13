@@ -68,6 +68,43 @@ describe('non-régression — mes vraies mains (adversaires anonymisés)', () =>
     expect(['call-raise-faible', 'call-sans-cote']).toContain(m!.type);
   });
 
+  it('KQ 2ᵉ paire : check-raise turn puis tapis river → reste une erreur (ligne durcie, strict value)', () => {
+    const m = classifySpot(
+      spot({
+        street: 'river',
+        heroCards: ['Kh', 'Qd'],
+        board: ['8s', '7h', 'Ks', '6d', 'Ac'], // A top, K = 2ᵉ paire
+        facing: 'bet', // tapis river (mise) après durcissement au turn
+        villainAllIn: true,
+        facingBet: true,
+        toCall: 79,
+        potBefore: 253, // ~24 % requis
+        heroAction: call(79),
+      }),
+      { preAggressor: false, turnHardened: true },
+    );
+    expect(m).not.toBeNull();
+    expect(['call-sans-cote', 'call-raise-faible']).toContain(m!.type);
+    expect(m!.villainRange).toContain('durcissement');
+  });
+
+  it('KQ top paire : board sec, vilain passif puis mise ⅓ pot river → PAS une erreur (ligne passive)', () => {
+    const m = classifySpot(
+      spot({
+        street: 'river',
+        heroCards: ['Kh', 'Qd'],
+        board: ['Ks', '8h', '3d', '2c', '7s'], // K top, board sec
+        facing: 'bet',
+        facingBet: true,
+        toCall: 20,
+        potBefore: 60, // ⅓ pot → ~25 % requis
+        heroAction: call(20),
+      }),
+      { preAggressor: false, turnHardened: false },
+    );
+    expect(m).toBeNull();
+  });
+
   it('QQ court flop : tapis de 0,11 € dans ~0,70 € (il faut ~14 %) → PAS une erreur', () => {
     const m = classifySpot(
       spot({

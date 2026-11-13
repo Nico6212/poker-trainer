@@ -31,6 +31,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
   // Chiffres d'équité/cote, une seule fois (le detail du classifieur ne les répète plus ici).
   const eq = pct(m.equity);
   const req = pct(m.required);
+  const range = m.villainRange ? ` ${m.villainRange}` : ''; // ligne river retenue, si présente
 
   switch (m.type as MistakeType) {
     case 'call-sans-cote':
@@ -43,7 +44,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         played: PLAY,
         explain: `Ton équité (${eq}) est sous la cote requise (${req}) : tu paies trop cher${
           m.equity === 0 ? ' (tu ne bats aucune main de la range de value)' : ''
-        }.`,
+        }.${range}`,
       };
     case 'fold-avec-cote':
       return {
@@ -52,7 +53,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [PLAY, FOLD],
         correct: PLAY,
         played: FOLD,
-        explain: `Tu avais la cote : ton équité (${eq}) dépasse le prix requis (${req}).`,
+        explain: `Tu avais la cote : ton équité (${eq}) dépasse le prix requis (${req}).${range}`,
       };
     case 'jam-main-moyenne':
       return {
