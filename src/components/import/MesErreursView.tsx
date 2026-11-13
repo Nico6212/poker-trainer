@@ -11,14 +11,14 @@ import type { ParsedAction, ParsedHand, ParsedStreet } from '@/lib/poker/import/
 const SUIT: Record<string, string> = { h: '♥', d: '♦', c: '♣', s: '♠' };
 const RED = (s: string) => s === 'h' || s === 'd';
 
-function CardBadge({ card }: { card: Card }) {
+function CardBadge({ card, highlight = false }: { card: Card; highlight?: boolean }) {
   const rank = card[0] === 'T' ? '10' : card[0];
   const suit = card[1];
   return (
     <span
-      className={`inline-flex min-w-[1.5rem] justify-center rounded border border-black/15 bg-white px-1 font-mono text-sm font-bold dark:border-white/20 ${
+      className={`inline-flex min-w-[1.5rem] justify-center rounded border bg-white px-1 font-mono text-sm font-bold dark:border-white/20 ${
         RED(suit) ? 'text-red-600' : 'text-neutral-900'
-      }`}
+      } ${highlight ? 'border-amber-400 ring-2 ring-amber-400' : 'border-black/15'}`}
     >
       {rank}
       {SUIT[suit]}
@@ -179,16 +179,63 @@ function keyActionLabel(hand: ParsedHand, upto: number): string | null {
   return `${verb} ${STREET_LABEL[key.street].toLowerCase()}`;
 }
 
-/** Historique de la main AVANT la décision du héros (positions, mises, action clé). */
+/** Pot (en centimes) au DÉBUT de chaque street (tout ce qui est entré avant ses mises). */
+function potByStreet(hand: ParsedHand): Partial<Record<ParsedStreet, number>> {
+  const inv = new Map<number, { street: number; total: number }>();
+  for (const s of hand.seats) inv.set(s.seat, { street: 0, total: 0 });
+  const total = () => [...inv.values()].reduce((p, x) => p + x.total, 0);
+  const potAt: Partial<Record<ParsedStreet, number>> = {};
+  let cur: ParsedStreet | null = null;
+  for (const a of hand.actions) {
+    if (a.street !== cur) {
+      potAt[a.street] = total(); // pot avant la 1ʳᵉ mise de cette street
+      cur = a.street;
+      for (const x of inv.values()) x.street = 0;
+    }
+    const x = inv.get(a.seat);
+    if (!x) continue;
+    if (a.type === 'blind' || a.type === 'ante' || a.type === 'call' || a.type === 'bet') {
+      x.total += a.amount;
+      x.street += a.amount;
+    } else if (a.type === 'raise') {
+      const to = a.toAmount ?? x.street + a.amount;
+      x.total += to - x.street;
+      x.street = to;
+    } else if (a.type === 'uncalled') {
+      x.total -= a.amount;
+      x.street -= a.amount;
+    }
+  }
+  return potAt;
+}
+
+/** Tapis effectif au début de la main (en BB) : héros vs l'adversaire le plus profond. */
+function effectiveStackBB(hand: ParsedHand): number {
+  const hero = hand.seats.find((s) => s.seat === hand.heroSeat);
+  if (!hero || hand.bb <= 0) return 0;
+  const opps = hand.seats.filter((s) => s.seat !== hand.heroSeat).map((s) => s.stack);
+  const deepest = opps.length ? Math.max(...opps) : hero.stack;
+  return Math.round(Math.min(hero.stack, deepest) / hand.bb);
+}
+
+/** Nombre de cartes du board avant cette street (pour repérer la/les carte(s) nouvelle(s)). */
+const PREV_BOARD: Record<ParsedStreet, number> = { preflop: 0, flop: 0, turn: 3, river: 4 };
+
+/** Historique de la main AVANT la décision du héros (positions, mises, board + pot, action clé). */
 function PreDecision({ hand, upto }: { hand: ParsedHand; upto: number }) {
   const pos = positionMap(hand);
+  const heroPos = pos.get(hand.heroSeat);
   const streets: ParsedStreet[] = ['preflop', 'flop', 'turn', 'river'];
   const acts = hand.actions.slice(0, upto);
   const key = keyActionLabel(hand, upto);
+  const pots = potByStreet(hand);
+  const eff = effectiveStackBB(hand);
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-black/10 bg-neutral-50 p-2 text-sm dark:border-white/10 dark:bg-neutral-950/50">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-bold uppercase text-neutral-500">Déroulé</span>
+        <span className="text-xs font-bold uppercase text-neutral-500">
+          Déroulé{eff > 0 ? ` · tapis effectif ${eff} BB` : ''}
+        </span>
         {key && (
           <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
             ⚡ {key}
@@ -199,14 +246,17 @@ function PreDecision({ hand, upto }: { hand: ParsedHand; upto: number }) {
         const sActs = acts.filter((a) => a.street === street);
         if (sActs.length === 0) return null;
         const board = boardUpTo(hand, street);
+        const prev = PREV_BOARD[street];
+        const pot = pots[street] ?? 0;
         const checked = new Set<number>();
         return (
           <div key={street} className="border-t border-black/5 pt-1 dark:border-white/5">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold uppercase text-neutral-500">{STREET_LABEL[street]}</span>
-              {board.map((c) => (
-                <CardBadge key={c} card={c} />
+              {board.map((c, ci) => (
+                <CardBadge key={c} card={c} highlight={ci >= prev} />
               ))}
+              {pot > 0 && <span className="text-xs text-neutral-400">· pot {euro(pot)}</span>}
             </div>
             <ul className="mt-0.5 space-y-0.5">
               {sActs.map((a, i) => {
@@ -214,7 +264,7 @@ function PreDecision({ hand, upto }: { hand: ParsedHand; upto: number }) {
                 const isCR = a.type === 'raise' && checked.has(a.seat);
                 if (a.type === 'check') checked.add(a.seat);
                 const aggressive = !isHero && (a.type === 'bet' || a.type === 'raise');
-                const who = isHero ? 'Héros' : pos.get(a.seat) ?? `S${a.seat}`;
+                const who = isHero ? `Toi${heroPos ? ` (${heroPos})` : ''}` : pos.get(a.seat) ?? `S${a.seat}`;
                 return (
                   <li
                     key={i}
@@ -222,7 +272,7 @@ function PreDecision({ hand, upto }: { hand: ParsedHand; upto: number }) {
                       isHero ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''
                     } ${aggressive ? 'bg-amber-100/70 dark:bg-amber-900/30' : ''}`}
                   >
-                    <span className="min-w-[2.75rem] shrink-0 text-neutral-500">{who}</span>
+                    <span className="min-w-[3.5rem] shrink-0 text-neutral-500">{who}</span>
                     <span>{isCR ? `check-raise à ${euro(a.toAmount ?? a.amount)}` : actionText(a)}</span>
                   </li>
                 );
