@@ -28,10 +28,9 @@ const LIMP = 'Limper';
 const OPEN = 'Ouvrir (relancer)';
 
 export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
-  const odds =
-    m.equity !== undefined && m.required !== undefined
-      ? ` Équité ${pct(m.equity)} vs cote requise ${pct(m.required)}.`
-      : '';
+  // Chiffres d'équité/cote, une seule fois (le detail du classifieur ne les répète plus ici).
+  const eq = pct(m.equity);
+  const req = pct(m.required);
 
   switch (m.type as MistakeType) {
     case 'call-sans-cote':
@@ -42,7 +41,9 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [PLAY, FOLD],
         correct: FOLD,
         played: PLAY,
-        explain: `Call sans la cote : tu paies trop cher pour ton équité.${odds} ${m.detail}`.trim(),
+        explain: `Ton équité (${eq}) est sous la cote requise (${req}) : tu paies trop cher${
+          m.equity === 0 ? ' (tu ne bats aucune main de la range de value)' : ''
+        }.`,
       };
     case 'fold-avec-cote':
       return {
@@ -51,7 +52,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [PLAY, FOLD],
         correct: PLAY,
         played: FOLD,
-        explain: `Fold avec la cote : tu avais le prix pour payer.${odds} ${m.detail}`.trim(),
+        explain: `Tu avais la cote : ton équité (${eq}) dépasse le prix requis (${req}).`,
       };
     case 'jam-main-moyenne':
       return {
@@ -60,7 +61,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [JAM, CONTROL],
         correct: CONTROL,
         played: JAM,
-        explain: `Tapis avec une main moyenne : trop peu d'équité pour mettre tout dedans.${odds} ${m.detail}`.trim(),
+        explain: `Tapis avec seulement ${eq} d'équité contre la range qui paie — trop peu pour tout mettre dedans.`,
       };
     case '4bet-call':
       return {
@@ -69,7 +70,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [PLAY, FOLD],
         correct: FOLD,
         played: PLAY,
-        explain: `Call de 4-bet hors AA/KK en stacks profonds : domination fréquente. ${m.detail}`.trim(),
+        explain: m.detail,
       };
     case 'open-limp':
       return {
@@ -78,7 +79,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [OPEN, LIMP],
         correct: OPEN,
         played: LIMP,
-        explain: `Open-limp : si la main se joue, elle se relance. ${m.detail}`.trim(),
+        explain: m.detail,
       };
     case 'open-size':
       return {
@@ -87,7 +88,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: [OPEN, OPEN],
         correct: OPEN,
         played: OPEN,
-        explain: `Taille d'open non standard. Recette : 3 BB + 1 BB par limpeur. ${m.detail}`.trim(),
+        explain: `Taille d'open non standard : ${m.detail}`,
       };
     case 'small-3bet':
       return {
@@ -96,7 +97,7 @@ export function mistakeQuestion(m: StoredMistake): MistakeQuestion {
         options: ['3-bet', '3-bet'],
         correct: '3-bet',
         played: '3-bet',
-        explain: `3-bet sous-dimensionné : vise ≥ 3× (en position) / 4× (hors position) l'open. ${m.detail}`.trim(),
+        explain: `Sous-dimensionné : ${m.detail}`,
       };
   }
 }
