@@ -209,27 +209,18 @@ function potByStreet(hand: ParsedHand): Partial<Record<ParsedStreet, number>> {
   return potAt;
 }
 
-/** Tapis effectif au début de la main (en BB) : héros vs l'adversaire le plus profond. */
-function effectiveStackBB(hand: ParsedHand): number {
-  const hero = hand.seats.find((s) => s.seat === hand.heroSeat);
-  if (!hero || hand.bb <= 0) return 0;
-  const opps = hand.seats.filter((s) => s.seat !== hand.heroSeat).map((s) => s.stack);
-  const deepest = opps.length ? Math.max(...opps) : hero.stack;
-  return Math.round(Math.min(hero.stack, deepest) / hand.bb);
-}
-
 /** Nombre de cartes du board avant cette street (pour repérer la/les carte(s) nouvelle(s)). */
 const PREV_BOARD: Record<ParsedStreet, number> = { preflop: 0, flop: 0, turn: 3, river: 4 };
 
 /** Historique de la main AVANT la décision du héros (positions, mises, board + pot, action clé). */
-function PreDecision({ hand, upto }: { hand: ParsedHand; upto: number }) {
+function PreDecision({ hand, upto, effBB }: { hand: ParsedHand; upto: number; effBB: number }) {
   const pos = positionMap(hand);
   const heroPos = pos.get(hand.heroSeat);
   const streets: ParsedStreet[] = ['preflop', 'flop', 'turn', 'river'];
   const acts = hand.actions.slice(0, upto);
   const key = keyActionLabel(hand, upto);
   const pots = potByStreet(hand);
-  const eff = effectiveStackBB(hand);
+  const eff = Math.round(effBB);
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-black/10 bg-neutral-50 p-2 text-sm dark:border-white/10 dark:bg-neutral-950/50">
       <div className="flex items-center justify-between">
@@ -430,7 +421,7 @@ export function MesErreursView() {
             )}
           </div>
           {hand && typeof current.spot.actionIndex === 'number' && (
-            <PreDecision hand={hand} upto={current.spot.actionIndex} />
+            <PreDecision hand={hand} upto={current.spot.actionIndex} effBB={current.spot.effectiveBB} />
           )}
           {question.decision && current.spot.bb > 0 && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">

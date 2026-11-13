@@ -105,11 +105,22 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
     ) {
       const heroRemaining = self.stack - self.totalInvested;
       const toCall = Math.min(Math.max(0, currentBet - self.streetInvested), heroRemaining);
-      const aggRemaining =
-        aggressorSeat !== null
-          ? state.get(aggressorSeat)!.stack - state.get(aggressorSeat)!.totalInvested
-          : heroRemaining;
-      const effectiveBB = Math.max(0, Math.min(heroRemaining, aggRemaining)) / hand.bb;
+      // Tapis effectif = min(mon tapis de départ, tapis de départ de l'adversaire concerné) :
+      // l'agresseur que j'affronte, ou — en multiway sans agresseur — le plus profond des
+      // adversaires ENCORE dans le coup (jamais un joueur déjà couché, ni le plus profond de la table).
+      const heroStart = self.stack;
+      let villainStart: number;
+      if (aggressorSeat !== null && aggressorSeat !== action.seat) {
+        villainStart = state.get(aggressorSeat)!.stack;
+      } else {
+        let deepest = 0;
+        for (const [seat, st] of state) {
+          if (seat === action.seat || st.folded) continue;
+          deepest = Math.max(deepest, st.stack);
+        }
+        villainStart = deepest > 0 ? deepest : heroStart;
+      }
+      const effectiveBB = Math.max(0, Math.min(heroStart, villainStart)) / hand.bb;
 
       let facing: FacingKind;
       if (street === 'preflop') {
