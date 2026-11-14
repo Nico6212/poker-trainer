@@ -454,7 +454,7 @@ export function DrillView() {
       <header className="flex items-center justify-between text-sm">
         <h1 className="text-lg font-bold">Drill — automatismes</h1>
         <Link
-          href="/"
+          href="/table"
           className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
         >
           ← Retour à la table

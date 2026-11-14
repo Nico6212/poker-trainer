@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { SiteNav } from '@/components/SiteNav';
 import { CopyButton } from './CopyButton';
 
 export const metadata = {
-  title: 'Importer ses mains PokerStars — Poker Trainer',
+  title: 'Importer ses mains PokerStars',
   description:
     'Guide pas à pas : activer l’historique en anglais, trouver ses fichiers PokerStars, afficher les extensions et importer ses mains. 100 % dans ton navigateur.',
 };
@@ -50,17 +51,7 @@ const SECTION = 'scroll-mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-
 export default function AideImportPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
-      {/* En-tête */}
-      <header className="flex items-center gap-3 border-b border-slate-800 bg-slate-900/80 px-3 py-2.5 backdrop-blur sm:px-4">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-400">♠</span>
-        <span className="text-sm font-semibold text-slate-100">Poker Trainer</span>
-        <Link
-          href="/import"
-          className="ml-auto rounded-md border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300 transition hover:bg-slate-800"
-        >
-          ← Retour à l’import
-        </Link>
-      </header>
+      <SiteNav />
 
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-3 sm:p-6">
         <div>

@@ -333,7 +333,7 @@ export function MesErreursView() {
           Import
         </Link>
         <Link
-          href="/"
+          href="/table"
           className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
         >
           ← Table

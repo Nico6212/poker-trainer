@@ -726,6 +726,12 @@ export function Table() {
             {netBBText ? ` · Session : ${stats!.handsPlayed} mains, ${netBBText}` : ''}
           </span>
           <Link
+            href="/"
+            className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
+          >
+            Accueil
+          </Link>
+          <Link
             href="/drill"
             className="rounded-md border border-emerald-500 px-2 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950"
           >
@@ -736,6 +742,12 @@ export function Table() {
             className="rounded-md border border-sky-500 px-2 py-1 text-xs font-semibold text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950"
           >
             Import
+          </Link>
+          <Link
+            href="/mes-erreurs"
+            className="rounded-md border border-sky-500 px-2 py-1 text-xs font-semibold text-sky-600 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950"
+          >
+            Mes erreurs
           </Link>
           <button
             type="button"
