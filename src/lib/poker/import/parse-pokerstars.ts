@@ -69,7 +69,7 @@ export type ParseResult = {
 
 const SUPPORTED_SKIP: Record<SkipReason, string> = {
   french: 'Historique en français : active l’historique en anglais dans PokerStars.',
-  tournament: 'Tournoi : non supporté en v1.2 (cash uniquement).',
+  tournament: 'Tournoi : pas encore pris en charge (cash uniquement).',
   notHoldem: 'Variante non supportée (Hold’em uniquement).',
   format: 'Format de main non reconnu.',
 };

@@ -9,7 +9,9 @@ import { parsePokerStars, skipLabel, type ParsedHand, type SkipReason } from '@/
 import { buildSessions, nlLabel, type Session } from '@/lib/poker/import/sessions';
 
 const RAKEBACK_KEY = 'poker-rakeback';
-const bb100 = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1)} BB/100`;
+// Format français : virgule décimale, signe moins typographique, pas de « + ».
+const frEur = (cents: number) => `${cents < 0 ? '−' : ''}${(Math.abs(cents) / 100).toFixed(2).replace('.', ',')} €`;
+const frBB100 = (x: number) => `${x < 0 ? '−' : ''}${Math.abs(x).toFixed(1).replace('.', ',')} BB/100`;
 
 const MISTAKE_LABELS: Record<Mistake['type'], string> = {
   'open-limp': 'Open-limp',
@@ -93,6 +95,7 @@ export function ImportView() {
   const handById = useMemo(() => new Map(hands.map((h) => [h.id, h])), [hands]);
   const rake = useMemo(() => (hands.length ? rakeSummary(hands, rb) : null), [hands, rb]);
   const rakePerLimit = useMemo(() => rakeByLimit(hands, rb), [hands, rb]);
+  const netCents = useMemo(() => hands.reduce((s, h) => s + h.heroNet, 0), [hands]);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -221,9 +224,8 @@ export function ImportView() {
         <div className="flex flex-col gap-3 rounded-xl border border-amber-400/40 bg-amber-50 p-3 text-sm dark:border-amber-500/20 dark:bg-amber-950/20">
           <h2 className="font-bold">Rake prélevé par le site</h2>
           <p>
-            Le site t’a pris <strong>{euros(rake.rakeCents).replace('+', '')}</strong> ({bb100(rake.rakeBB100)}).
-            Sans rake, tu serais à <strong>{bb100(rake.grossBB100)}</strong> (brut) au lieu de{' '}
-            <strong>{bb100(rake.netBB100)}</strong> (net).
+            Le site t’a pris <strong>{frEur(rake.rakeCents)}</strong>. Sans rake, tu serais à{' '}
+            <strong>{frEur(netCents + rake.rakeCents)}</strong> au lieu de <strong>{frEur(netCents)}</strong>.
           </p>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -249,8 +251,8 @@ export function ImportView() {
             </label>
             {rakeback > 0 && (
               <span className="text-neutral-600 dark:text-neutral-300">
-                → tu récupères {euros(rake.rakebackCents).replace('+', '')}, net ajusté{' '}
-                <strong>{bb100(rake.adjustedBB100)}</strong>
+                → tu récupères {frEur(rake.rakebackCents)}, net ajusté{' '}
+                <strong>{frEur(netCents + rake.rakebackCents)}</strong>
               </span>
             )}
           </div>
@@ -259,14 +261,14 @@ export function ImportView() {
             <ul className="flex flex-col gap-0.5 text-xs text-neutral-600 dark:text-neutral-300">
               {rakePerLimit.map(({ bb, summary: r }) => (
                 <li key={bb}>
-                  {nlLabel(bb)} : {r.hands} mains · rake {euros(r.rakeCents).replace('+', '')} ({bb100(r.rakeBB100)})
-                  · net {bb100(r.netBB100)} / brut {bb100(r.grossBB100)}
+                  {nlLabel(bb)} : {r.hands} mains · rake {frEur(r.rakeCents)} ({frBB100(r.rakeBB100)}) · net{' '}
+                  {frBB100(r.netBB100)} / brut {frBB100(r.grossBB100)}
                 </li>
               ))}
             </ul>
           )}
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-            Rake « contribué » = rake × ta part investie du pot. Méthode principale.
+            Rake « contribué » = rake × ta part investie du pot (÷ total pot). Méthode principale.
           </p>
         </div>
       )}
@@ -315,8 +317,7 @@ export function ImportView() {
               </p>
               {sRake && sRake.rakeCents > 0 && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Rake {euros(sRake.rakeCents).replace('+', '')} ({bb100(sRake.rakeBB100)}) · brut{' '}
-                  {bb100(sRake.grossBB100)}
+                  Rake {frEur(sRake.rakeCents)} ({frBB100(sRake.rakeBB100)}) · brut {frBB100(sRake.grossBB100)}
                 </p>
               )}
               {errors.length === 0 ? (

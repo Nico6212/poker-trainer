@@ -109,6 +109,49 @@ describe('net du héros, table, horodatage', () => {
     expect(h.heroInvested).toBe(58); // 6 + 8 + 44
   });
 
+  // Non-régression du rapprochement : relance + tapis non payé (rendu) + rake.
+  const RAKE_HAND = [
+    "PokerStars Hand #990001:  Hold'em No Limit (€0.01/€0.02 EUR) - 2026/11/10 10:00:00 CET",
+    "Table 'Reg' 6-max Seat #1 is the button",
+    'Seat 1: v1 (€2 in chips)',
+    'Seat 2: Hero (€2 in chips)',
+    'Seat 3: v3 (€2 in chips)',
+    'Hero: posts small blind €0.01',
+    'v3: posts big blind €0.02',
+    '*** HOLE CARDS ***',
+    'Dealt to Hero [Ah Kh]',
+    'v1: raises €0.04 to €0.06',
+    'Hero: raises €0.14 to €0.20',
+    'v3: folds',
+    'v1: calls €0.14',
+    '*** FLOP *** [2c 7d 9s]',
+    'Hero: bets €0.40',
+    'v1: folds',
+    'Uncalled bet (€0.40) returned to Hero',
+    'Hero collected €0.40 from pot',
+    '*** SUMMARY ***',
+    'Total pot €0.42 | Rake €0.02',
+  ].join('\n');
+
+  it('investi net du tapis rendu : SB 1 + relance à 20, mise flop 40 rendue → investi 20', () => {
+    const h = parsePokerStars(RAKE_HAND).hands[0];
+    expect(h.heroInvested).toBe(20); // 1 (SB) + 19 (relance à 20) + 40 (flop) − 40 (rendu)
+    expect(h.heroNet).toBe(20); // collecté 40 − investi 20
+    expect(h.rake).toBe(2);
+    expect(h.totalPot).toBe(42);
+    expect(h.playersDealt).toBe(3);
+  });
+
+  it('résumé avec side pots : total pot et rake lus correctement', () => {
+    const side = RAKE_HAND.replace(
+      'Total pot €0.42 | Rake €0.02',
+      'Total pot €4.81 Main pot €3.04. Side pot €1.52. | Rake €0.25',
+    );
+    const h = parsePokerStars(side).hands[0];
+    expect(h.totalPot).toBe(481);
+    expect(h.rake).toBe(25);
+  });
+
   it('horodatage avec heure à un chiffre (avant 10h) — PokerStars ne zéro-padde pas', () => {
     const morning = HAND.replace('2024/01/15 20:00:00', '2024/01/15 9:34:20');
     const h = parsePokerStars(morning).hands[0];
