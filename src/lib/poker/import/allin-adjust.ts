@@ -59,7 +59,7 @@ export function equityVsHand(hero: [Card, Card], villain: [Card, Card], board: C
 }
 
 /** Détermine si une main est un tapis AVANT la river, heads-up, cartes adverses connues. */
-function qualify(hand: ParsedHand): { villain: [Card, Card]; board: Card[] } | 'skip' | null {
+export function qualifyAllin(hand: ParsedHand): { villain: [Card, Card]; board: Card[] } | 'skip' | null {
   let allInStreet: ParsedStreet | null = null;
   for (const a of hand.actions) {
     if (a.allIn && a.street !== 'river') allInStreet = a.street;
@@ -95,32 +95,36 @@ export type AllinLuck = {
   evCents: number;
   /** Chance totale = résultat réel − EV (positif = veinard), en centimes. */
   luckCents: number;
-  /** Chance en BB/100 PAR LIMITE (les BB diffèrent). */
-  byLimit: { bb: number; hands: number; luckBB100: number }[];
+  /** Chance PAR LIMITE : BB/100 (sur les tapis) et total en centimes (pour le winrate ajusté). */
+  byLimit: { bb: number; hands: number; luckBB100: number; luckCents: number }[];
 };
 
-type HandEval = { net: number; ev: number; luck: number; bb: number };
+/** Résultat chiffré d'une main tapis (mis en cache par id de main). */
+export type HandEval = { net: number; ev: number; luck: number; bb: number };
 
-/** Évalue une main (coûteux pour les tapis préflop : Monte-Carlo). */
-function evalHand(hand: ParsedHand, rng?: RNG): HandEval | 'skip' | null {
-  const q = qualify(hand);
-  if (q === null) return null;
-  if (q === 'skip') return 'skip';
+/** Calcule l'EV d'une main QUALIFIÉE (coûteux pour un tapis préflop : Monte-Carlo). */
+export function evalQualified(
+  hand: ParsedHand,
+  q: { villain: [Card, Card]; board: Card[] },
+  rng?: RNG,
+): HandEval {
   const r = rng ?? mulberry32(seedFrom([...hand.heroCards, ...q.villain, ...q.board]));
   const eq = equityVsHand(hand.heroCards, q.villain, q.board, r);
   const ev = eq * (hand.totalPot - hand.rake) - hand.heroInvested;
   return { net: hand.heroNet, ev, luck: hand.heroNet - ev, bb: hand.bb };
 }
 
-function aggregate(evals: HandEval[], skipped: number): AllinLuck {
+/** Agrège des évaluations de mains (depuis le cache et/ou nouvellement calculées). */
+export function aggregateAllin(evals: HandEval[], skipped: number): AllinLuck {
   let actualNet = 0;
   let ev = 0;
-  const byBb = new Map<number, { luckBB: number; n: number }>();
+  const byBb = new Map<number, { luckBB: number; luckCents: number; n: number }>();
   for (const e of evals) {
     actualNet += e.net;
     ev += e.ev;
-    const b = byBb.get(e.bb) ?? { luckBB: 0, n: 0 };
+    const b = byBb.get(e.bb) ?? { luckBB: 0, luckCents: 0, n: 0 };
     b.luckBB += e.bb > 0 ? e.luck / e.bb : 0;
+    b.luckCents += e.luck;
     b.n += 1;
     byBb.set(e.bb, b);
   }
@@ -132,40 +136,23 @@ function aggregate(evals: HandEval[], skipped: number): AllinLuck {
     luckCents: actualNet - ev,
     byLimit: [...byBb.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([bb, b]) => ({ bb, hands: b.n, luckBB100: b.n > 0 ? (b.luckBB / b.n) * 100 : 0 })),
+      .map(([bb, b]) => ({
+        bb,
+        hands: b.n,
+        luckBB100: b.n > 0 ? (b.luckBB / b.n) * 100 : 0,
+        luckCents: b.luckCents,
+      })),
   };
 }
 
-/** Résultat ajusté à l'all-in (synchrone). rng optionnel pour les tests. */
+/** Résultat ajusté à l'all-in (synchrone, sans cache). rng optionnel pour les tests. */
 export function allinAdjusted(hands: ParsedHand[], rng?: RNG): AllinLuck {
   const evals: HandEval[] = [];
   let skipped = 0;
   for (const hand of hands) {
-    const e = evalHand(hand, rng);
-    if (e === 'skip') skipped += 1;
-    else if (e) evals.push(e);
-  }
-  return aggregate(evals, skipped);
-}
-
-/** Version chunkée (une main à la fois, rend la main au navigateur) pour ne pas geler l'UI. */
-export async function allinAdjustedChunked(
-  hands: ParsedHand[],
-  onProgress?: (done: number, total: number) => void,
-): Promise<AllinLuck> {
-  let skipped = 0;
-  const qualifying: ParsedHand[] = [];
-  for (const hand of hands) {
-    const q = qualify(hand);
+    const q = qualifyAllin(hand);
     if (q === 'skip') skipped += 1;
-    else if (q !== null) qualifying.push(hand);
+    else if (q !== null) evals.push(evalQualified(hand, q, rng));
   }
-  const evals: HandEval[] = [];
-  for (let i = 0; i < qualifying.length; i++) {
-    const e = evalHand(qualifying[i]);
-    if (e && e !== 'skip') evals.push(e);
-    onProgress?.(i + 1, qualifying.length);
-    await new Promise((r) => setTimeout(r, 0)); // laisse le navigateur respirer
-  }
-  return aggregate(evals, skipped);
+  return aggregateAllin(evals, skipped);
 }

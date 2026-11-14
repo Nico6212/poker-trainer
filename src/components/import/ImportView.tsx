@@ -2,14 +2,21 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Card } from '@/lib/poker/cards';
 import { classifyHand, type Mistake } from '@/lib/poker/import/classify-mistake';
-import { clearImport, saveImport } from '@/lib/poker/import/db';
+import { clearImport, loadAllinCache, saveAllinEvals, saveImport } from '@/lib/poker/import/db';
 import { rakeByLimit, rakeSummary } from '@/lib/poker/import/rake';
 import { parsePokerStars, skipLabel, type ParsedHand, type SkipReason } from '@/lib/poker/import/parse-pokerstars';
 import { buildSessions, nlLabel, tablesComparison, type Session } from '@/lib/poker/import/sessions';
 import { winrateCIByLimit, SIGMAS, DEFAULT_SIGMA, MIN_SAMPLE } from '@/lib/poker/confidence';
 import { bankrollByLimit, recommendedMaxStake } from '@/lib/poker/bankroll';
-import { allinAdjustedChunked, type AllinLuck } from '@/lib/poker/import/allin-adjust';
+import {
+  aggregateAllin,
+  evalQualified,
+  qualifyAllin,
+  type AllinLuck,
+  type HandEval,
+} from '@/lib/poker/import/allin-adjust';
 
 const RAKEBACK_KEY = 'poker-rakeback';
 const SIGMA_KEY = 'poker-sigma';
@@ -108,7 +115,7 @@ export function ImportView() {
   const rakePerLimit = useMemo(() => rakeByLimit(hands, rb), [hands, rb]);
   const netCents = useMemo(() => hands.reduce((s, h) => s + h.heroNet, 0), [hands]);
   const ciByLimit = useMemo(() => winrateCIByLimit(hands, sigma), [hands, sigma]);
-  const tables = useMemo(() => (hands.length ? tablesComparison(hands) : null), [hands]);
+  const tables = useMemo(() => (hands.length ? tablesComparison(hands, sigma) : null), [hands, sigma]);
 
   // All-in ajusté : coûteux (Monte-Carlo préflop) → calcul asynchrone chunké, non bloquant.
   const [allin, setAllin] = useState<AllinLuck | null>(null);
@@ -120,15 +127,38 @@ export function ImportView() {
       return;
     }
     let cancelled = false;
-    setAllinProgress('Calcul de la chance all-in…');
-    allinAdjustedChunked(hands, (done, total) => {
-      if (!cancelled && total > 0) setAllinProgress(`Chance all-in… ${done}/${total}`);
-    }).then((res) => {
-      if (!cancelled) {
-        setAllin(res);
-        setAllinProgress(null);
+    (async () => {
+      setAllinProgress('Chance all-in…');
+      // Cache par id de main : on ne (re)calcule que les nouveaux tapis.
+      const cache = await loadAllinCache();
+      const evals: HandEval[] = [];
+      const toCompute: { hand: ParsedHand; q: { villain: [Card, Card]; board: Card[] } }[] = [];
+      let skipped = 0;
+      for (const h of hands) {
+        const cached = cache.get(h.id);
+        if (cached) {
+          evals.push(cached);
+          continue;
+        }
+        const q = qualifyAllin(h);
+        if (q === 'skip') skipped += 1;
+        else if (q !== null) toCompute.push({ hand: h, q });
       }
-    });
+      const fresh: ({ id: string } & HandEval)[] = [];
+      for (let i = 0; i < toCompute.length; i++) {
+        if (cancelled) return;
+        const { hand, q } = toCompute[i];
+        const e = evalQualified(hand, q);
+        evals.push(e);
+        fresh.push({ id: hand.id, ...e });
+        setAllinProgress(`Nouveaux tapis… ${i + 1}/${toCompute.length}`);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      if (cancelled) return;
+      await saveAllinEvals(fresh);
+      setAllin(aggregateAllin(evals, skipped));
+      setAllinProgress(null);
+    })();
     return () => {
       cancelled = true;
     };
@@ -408,9 +438,19 @@ export function ImportView() {
                 {allin.skipped > 0 ? ` · ${allin.skipped} ignorés (multiway/side pot)` : ''}.
               </p>
               {allin.byLimit.length > 0 && (
-                <p className="text-neutral-400">
-                  {allin.byLimit.map((l) => `${nlLabel(l.bb)} ${frBB100(l.luckBB100)}`).join(' · ')}
-                </p>
+                <ul className="mt-0.5 text-neutral-500 dark:text-neutral-400">
+                  {allin.byLimit.map((l) => {
+                    const ci = ciByLimit.find((c) => c.bb === l.bb);
+                    const adjusted =
+                      ci && ci.hands > 0 ? ci.netBB100 - ((l.luckCents / l.bb) / ci.hands) * 100 : null;
+                    return (
+                      <li key={l.bb}>
+                        {nlLabel(l.bb)} : chance {frBB100(l.luckBB100)} sur {l.hands} tapis
+                        {adjusted !== null ? ` · winrate ajusté à l’all-in ${frBB100(adjusted)}` : ''}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           )}
@@ -421,7 +461,12 @@ export function ImportView() {
               {tables.comparable ? (
                 <>
                   1-2 tables → {tables.few.hands} mains, {frBB100(tables.few.netBB100)} · 3+ tables →{' '}
-                  {tables.many.hands} mains, {frBB100(tables.many.netBB100)}.
+                  {tables.many.hands} mains, {frBB100(tables.many.netBB100)}.{' '}
+                  {tables.significant
+                    ? `Le multitabling change ton winrate de ${frBB100(tables.diffBB100)} (significatif).`
+                    : `Écart de ${frBB100(tables.diffBB100)}, pas encore significatif (marge ±${tables.marginBB100
+                        .toFixed(0)
+                        .replace('.', ',')}).`}
                 </>
               ) : (
                 <>

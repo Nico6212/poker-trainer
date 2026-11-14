@@ -181,10 +181,16 @@ export type TablesComparison = {
   many: { hands: number; netBB100: number };
   /** Comparable seulement si chaque côté a ≥ 1000 mains. */
   comparable: boolean;
+  /** Écart = 3+ tables − 1-2 tables (négatif = le multitabling te coûte). */
+  diffBB100: number;
+  /** Marge 95 % de l'écart : 1,96 × √(σ²/(n₁/100) + σ²/(n₂/100)). */
+  marginBB100: number;
+  /** L'intervalle de l'écart NE contient PAS 0 (écart significatif). */
+  significant: boolean;
 };
 
 /** Compare le winrate à 1-2 tables vs 3+ tables (BB/100 par main, valide multi-limites). */
-export function tablesComparison(hands: ParsedHand[]): TablesComparison {
+export function tablesComparison(hands: ParsedHand[], sigma = 90): TablesComparison {
   const few: ParsedHand[] = [];
   const many: ParsedHand[] = [];
   for (const session of groupSessions(hands)) {
@@ -196,10 +202,20 @@ export function tablesComparison(hands: ParsedHand[]): TablesComparison {
     for (const h of hs) if (h.bb > 0) nb += h.heroNet / h.bb;
     return hs.length > 0 ? (nb / hs.length) * 100 : 0;
   };
+  const fewWr = netBB100(few);
+  const manyWr = netBB100(many);
+  const diff = manyWr - fewWr;
+  const margin =
+    few.length > 0 && many.length > 0
+      ? 1.96 * Math.sqrt(sigma ** 2 / (few.length / 100) + sigma ** 2 / (many.length / 100))
+      : Infinity;
   return {
-    few: { hands: few.length, netBB100: netBB100(few) },
-    many: { hands: many.length, netBB100: netBB100(many) },
+    few: { hands: few.length, netBB100: fewWr },
+    many: { hands: many.length, netBB100: manyWr },
     comparable: few.length >= 1000 && many.length >= 1000,
+    diffBB100: diff,
+    marginBB100: margin,
+    significant: Math.abs(diff) > margin,
   };
 }
 

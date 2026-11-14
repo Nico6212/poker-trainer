@@ -1,3 +1,4 @@
+import type { HandEval } from './allin-adjust';
 import type { Mistake } from './classify-mistake';
 import { newReview, type Review } from './mistake-srs';
 import type { ParsedHand } from './parse-pokerstars';
@@ -6,9 +7,10 @@ import type { ParsedHand } from './parse-pokerstars';
 // Dédoublonnage des mains par numéro. 100 % navigateur, rien n'est envoyé.
 
 const DB_NAME = 'poker-trainer-import';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const HANDS = 'hands';
 const MISTAKES = 'mistakes';
+const ALLIN = 'allinEv'; // cache des EV de tapis, par id de main (calcul coûteux)
 
 export type StoredMistake = {
   id: string;
@@ -29,6 +31,7 @@ function open(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(HANDS)) db.createObjectStore(HANDS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(MISTAKES)) db.createObjectStore(MISTAKES, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(ALLIN)) db.createObjectStore(ALLIN, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -178,6 +181,27 @@ export async function countImport(): Promise<{ hands: number; mistakes: number }
   return { hands, mistakes };
 }
 
+export type StoredAllinEval = { id: string } & HandEval;
+
+/** Cache des EV de tapis déjà calculées, par id de main (évite de tout recalculer). */
+export async function loadAllinCache(): Promise<Map<string, HandEval>> {
+  const list = await getAll<StoredAllinEval>(ALLIN);
+  return new Map(list.map((e) => [e.id, { net: e.net, ev: e.ev, luck: e.luck, bb: e.bb }]));
+}
+
+/** Persiste les EV nouvellement calculées. */
+export async function saveAllinEvals(evals: StoredAllinEval[]): Promise<void> {
+  if (evals.length === 0) return;
+  const db = await open();
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(ALLIN, 'readwrite');
+    const store = t.objectStore(ALLIN);
+    for (const e of evals) store.put(e);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+}
+
 export function loadHands(): Promise<ParsedHand[]> {
   return getAll<ParsedHand>(HANDS);
 }
@@ -193,9 +217,10 @@ export function getHand(id: string): Promise<ParsedHand | undefined> {
 export async function clearImport(): Promise<void> {
   const db = await open();
   await new Promise<void>((resolve, reject) => {
-    const t = db.transaction([HANDS, MISTAKES], 'readwrite');
+    const t = db.transaction([HANDS, MISTAKES, ALLIN], 'readwrite');
     t.objectStore(HANDS).clear();
     t.objectStore(MISTAKES).clear();
+    t.objectStore(ALLIN).clear();
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   });

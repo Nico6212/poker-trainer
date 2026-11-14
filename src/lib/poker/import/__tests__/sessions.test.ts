@@ -152,5 +152,7 @@ describe('tablesComparison', () => {
     expect(c.few.hands).toBe(2);
     expect(c.many.hands).toBe(3);
     expect(c.comparable).toBe(false); // bien en dessous de 1000 de chaque côté
+    expect(c.significant).toBe(false); // marge énorme sur si peu de mains
+    expect(c.marginBB100).toBeGreaterThan(c.diffBB100);
   });
 });
