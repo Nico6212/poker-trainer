@@ -103,31 +103,37 @@ export type ShowdownStat = {
   twoPairPlusRate: number;
   wilsonLow: number;
   wilsonHigh: number;
+  /** Bluffs montrés volontairement (gain sans abattage contesté). PAS utilisés dans la calibration. */
+  bluffsShown: number;
 };
 
 /** Agrège les abattages par action × limite. Une observation par action agressive. */
 export function showdownStats(hands: ParsedHand[]): ShowdownStat[] {
-  const agg = new Map<string, { bb: number; action: VillainAction; counts: Record<ShownStrength, number> }>();
-  const record = (action: VillainAction, bb: number, strength: ShownStrength) => {
+  const agg = new Map<
+    string,
+    { bb: number; action: VillainAction; counts: Record<ShownStrength, number>; bluffs: number }
+  >();
+  const entry = (action: VillainAction, bb: number) => {
     const key = `${action}|${bb}`;
     let e = agg.get(key);
     if (!e) {
-      e = { bb, action, counts: EMPTY_COUNTS() };
+      e = { bb, action, counts: EMPTY_COUNTS(), bluffs: 0 };
       agg.set(key, e);
     }
-    e.counts[strength] += 1;
+    return e;
   };
 
   for (const hand of hands) {
     for (const seatStr of Object.keys(hand.shown)) {
       const seat = Number(seatStr);
       if (seat === hand.heroSeat) continue; // seulement les adversaires
-      // Le vilain a-t-il gagné SANS être payé (mise non suivie) ? Alors il montre un
-      // bluff volontairement : ce n'est pas un abattage contesté → on l'ignore (biais).
-      if (hand.actions.some((a) => a.type === 'uncalled' && a.seat === seat)) continue;
+      // Gagné SANS être payé (mise non suivie) ? Le vilain montre volontairement : ce n'est
+      // pas un abattage contesté → on le COMPTE À PART (bluffs montrés), hors calibration.
+      const wonUncalled = hand.actions.some((a) => a.type === 'uncalled' && a.seat === seat);
       const hole = hand.shown[seat];
-      let aggrFlopTurn = false; // le joueur a-t-il misé/relancé au flop/turn ?
+      let aggrFlopTurn = false;
       const checkedOn = new Set<ParsedStreet>();
+      let lastBluffAction: VillainAction | null = null;
 
       for (const a of hand.actions) {
         if (a.seat !== seat) continue;
@@ -147,14 +153,18 @@ export function showdownStats(hands: ParsedHand[]): ShowdownStat[] {
         else if (a.street === 'river' && a.type === 'bet' && !a.allIn && !aggrFlopTurn)
           action = 'betRiverAfterPassive';
 
-        if (action) record(action, hand.bb, classifyShownStrength(hole, board, a.street !== 'river'));
+        if (action) {
+          if (wonUncalled) lastBluffAction = action; // bluff : on retiendra la dernière action
+          else entry(action, hand.bb).counts[classifyShownStrength(hole, board, a.street !== 'river')] += 1;
+        }
         if (a.street === 'flop' || a.street === 'turn') aggrFlopTurn = true;
       }
+      if (wonUncalled && lastBluffAction) entry(lastBluffAction, hand.bb).bluffs += 1;
     }
   }
 
   return [...agg.values()]
-    .map(({ action, bb, counts }) => {
+    .map(({ action, bb, counts, bluffs }) => {
       const showdowns = Object.values(counts).reduce((s, n) => s + n, 0);
       const w = wilson(counts.twoPairPlus, showdowns);
       return {
@@ -165,6 +175,7 @@ export function showdownStats(hands: ParsedHand[]): ShowdownStat[] {
         twoPairPlusRate: showdowns > 0 ? counts.twoPairPlus / showdowns : 0,
         wilsonLow: w.low,
         wilsonHigh: w.high,
+        bluffsShown: bluffs,
       };
     })
     .sort((a, b) => a.bb - b.bb || a.action.localeCompare(b.action));

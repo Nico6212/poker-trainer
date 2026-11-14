@@ -84,7 +84,7 @@ describe('showdownStats', () => {
     expect(showdownStats([h])).toHaveLength(0);
   });
 
-  it('ignore un abattage gagné sans être payé (mise non suivie = bluff montré)', () => {
+  it('bluff montré (gain sans abattage contesté) : compté à part, hors calibration', () => {
     const h = hand({
       shown: { 2: h2('Qd', '3s') }, // air
       actions: [
@@ -92,7 +92,9 @@ describe('showdownStats', () => {
         { street: 'river', seat: 2, name: 'v', type: 'uncalled', amount: 0 },
       ],
     });
-    expect(showdownStats([h])).toHaveLength(0);
+    const s = showdownStats([h]).find((x) => x.action === 'betRiverAfterPassive');
+    expect(s?.bluffsShown).toBe(1);
+    expect(s?.showdowns).toBe(0); // pas un abattage contesté
   });
 
   it('une observation par action : relance flop + tapis river = deux observations', () => {

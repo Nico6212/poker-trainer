@@ -179,10 +179,25 @@ function riverVillainRange(board: Card[], dead: Card[], line: RiverLine): [Card,
   return [...value, ...chosen];
 }
 
+/** Infos internes exposées pour audit de la calibration (sans effet sur la classification). */
+export type ClassifyDebug = {
+  vAction: VillainAction | null;
+  p: number;
+  eqValue: number;
+  eqWeak: number | null;
+  equity: number;
+  required: number;
+};
+
 /** Un spot préflop ou postflop → une erreur, ou null. ctx.preAggressor = l'agresseur a 3-bet+ préflop. */
 export function classifySpot(
   spot: HeroSpot,
-  ctx: { preAggressor: boolean; turnHardened?: boolean; calibration?: Calibration },
+  ctx: {
+    preAggressor: boolean;
+    turnHardened?: boolean;
+    calibration?: Calibration;
+    debug?: (info: ClassifyDebug) => void;
+  },
   rng?: RNG,
 ): Mistake | null {
   const mk = (type: MistakeType, detail: string, extra?: Partial<Mistake>): Mistake => ({
@@ -296,9 +311,12 @@ export function classifySpot(
   // Calibration sur tes abattages : pour un call/fold face à une agression trackée,
   // on pondère value (a priori) et faible (observé). Sans données, p = 1 → équité inchangée.
   let equity = eqValue;
+  let pDebug = 1;
+  let eqWeakDebug: number | null = null;
   const vAction = !isJam && spot.facingBet ? spotVillainAction(spot) : null;
   if (ctx.calibration && vAction) {
     const p = ctx.calibration.strongFraction(vAction, spot.bb);
+    pDebug = p;
     if (p < 0.999) {
       const weak = weakRange(spot.board, spot.heroCards, ctx.calibration.weakMix(vAction, spot.bb));
       const eqWeak = weak.length
@@ -310,9 +328,11 @@ export function classifySpot(
             rng: rng ?? mulberry32((seed ^ 0x9e3779b9) >>> 0),
           }).equity
         : eqValue;
+      eqWeakDebug = eqWeak;
       equity = p * eqValue + (1 - p) * eqWeak;
     }
   }
+  ctx.debug?.({ vAction, p: pDebug, eqValue, eqWeak: eqWeakDebug, equity, required });
 
   if (spot.heroAction.type === 'call') {
     // Strictement la cote du pot contre la range scénarisée : mieux vaut rater un spot
@@ -362,9 +382,15 @@ function spotVillainAction(spot: HeroSpot): VillainAction | null {
     if (spot.villainAllIn) return 'jamRiver';
     if (spot.facing === 'checkRaise') return 'checkRaise';
     if (spot.facing === 'raisePostflop') return 'raiseRiver';
-    if (spot.facing === 'bet') return 'betRiverAfterPassive';
+    // Mise river : la stat « après ligne passive » ne vaut QUE si le vilain n'a pas
+    // misé/relancé avant (sa population d'origine). Après une ligne agressive, pas de
+    // stat appariée → p = 1 (value-only), on ne dilue pas.
+    if (spot.facing === 'bet') return spot.villainPassiveLine ? 'betRiverAfterPassive' : null;
     return null;
   }
+  // Un tapis flop/turn n'a pas de stat de TAILLE dédiée (raiseFlop/raiseTurn mélangent
+  // toutes les relances, surtout les petites) et un shove est value → pas de calibration.
+  if (spot.villainAllIn) return null;
   if (spot.facing === 'checkRaise') return 'checkRaise';
   if (spot.facing === 'raisePostflop') return spot.street === 'flop' ? 'raiseFlop' : 'raiseTurn';
   return null;

@@ -43,6 +43,8 @@ export type HeroSpot = {
   limpers: number;
   villainAllIn: boolean;
   aggressorSeat: number | null;
+  /** L'agresseur affronté n'a PAS misé/relancé au flop ni au turn (ligne passive jusqu'ici). */
+  villainPassiveLine: boolean;
   /** Taille « to » de la relance affrontée (pour les règles de sizing). */
   facedRaiseTo: number;
   heroAction: HeroAction;
@@ -71,6 +73,8 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
   let aggressorAllIn = false;
   let aggressorCheckRaise = false;
   const checkedThisStreet = new Set<number>();
+  /** Sièges ayant misé/relancé au flop ou au turn (ne se réinitialise PAS entre les streets). */
+  const aggrFlopTurn = new Set<number>();
 
   const resetStreet = () => {
     for (const st of state.values()) st.streetInvested = 0;
@@ -157,6 +161,7 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
         limpers,
         villainAllIn: aggressorAllIn,
         aggressorSeat,
+        villainPassiveLine: aggressorSeat !== null && !aggrFlopTurn.has(aggressorSeat),
         facedRaiseTo: currentBet,
         heroAction: {
           type: action.type,
@@ -200,6 +205,7 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
         aggressorSeat = action.seat;
         aggressorAllIn = !!action.allIn;
         aggressorCheckRaise = false;
+        if (street === 'flop' || street === 'turn') aggrFlopTurn.add(action.seat);
         break;
       }
       case 'raise': {
@@ -214,6 +220,7 @@ export function extractSpots(hand: ParsedHand): HeroSpot[] {
         aggressorSeat = action.seat;
         aggressorAllIn = !!action.allIn;
         if (street === 'preflop') preflopRaises += 1;
+        else if (street === 'flop' || street === 'turn') aggrFlopTurn.add(action.seat);
         break;
       }
       case 'uncalled': {

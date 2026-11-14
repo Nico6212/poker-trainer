@@ -74,28 +74,32 @@ export function MesAdversairesView() {
                 NL{s.bb} · {ACTION_LABEL[s.action]}
                 <span className="ml-2 text-xs font-normal text-slate-400">{s.showdowns} abattages</span>
               </h2>
-              <span className="text-sm">
-                Deux paires+ :{' '}
-                <strong className="text-emerald-300">{pct(s.twoPairPlusRate)}</strong>{' '}
-                <span className="text-xs text-slate-400">
-                  [{pct(s.wilsonLow)} – {pct(s.wilsonHigh)}]
+              {s.showdowns > 0 && (
+                <span className="text-sm">
+                  Deux paires+ :{' '}
+                  <strong className="text-emerald-300">{pct(s.twoPairPlusRate)}</strong>{' '}
+                  <span className="text-xs text-slate-400">
+                    [{pct(s.wilsonLow)} – {pct(s.wilsonHigh)}]
+                  </span>
                 </span>
-              </span>
+              )}
             </div>
 
             {/* Répartition empilée */}
-            <div className="flex h-2 overflow-hidden rounded bg-slate-800">
-              {STRENGTH.map(({ key, color }) =>
-                s.counts[key] > 0 ? (
-                  <div
-                    key={key}
-                    className={color}
-                    style={{ width: `${(s.counts[key] / s.showdowns) * 100}%` }}
-                    title={`${key} : ${s.counts[key]}`}
-                  />
-                ) : null,
-              )}
-            </div>
+            {s.showdowns > 0 && (
+              <div className="flex h-2 overflow-hidden rounded bg-slate-800">
+                {STRENGTH.map(({ key, color }) =>
+                  s.counts[key] > 0 ? (
+                    <div
+                      key={key}
+                      className={color}
+                      style={{ width: `${(s.counts[key] / s.showdowns) * 100}%` }}
+                      title={`${key} : ${s.counts[key]}`}
+                    />
+                  ) : null,
+                )}
+              </div>
+            )}
             <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400">
               {STRENGTH.filter(({ key }) => s.counts[key] > 0).map(({ key, label, color }) => (
                 <li key={key} className="flex items-center gap-1">
@@ -103,9 +107,15 @@ export function MesAdversairesView() {
                 </li>
               ))}
             </ul>
-            {s.showdowns < 15 && (
+            {s.bluffsShown > 0 && (
+              <p className="text-[11px] text-slate-400">
+                Bluffs montrés (gain sans abattage) : <strong>{s.bluffsShown}</strong> — seuls bluffs
+                visibles, non utilisés dans la calibration.
+              </p>
+            )}
+            {s.showdowns > 0 && s.showdowns < 15 && (
               <p className="text-[11px] text-slate-500">
-                Échantillon &lt; 15 : a priori théorique conservé (pas de calibration).
+                Abattages contestés &lt; 15 : a priori théorique conservé (pas de calibration).
               </p>
             )}
           </section>

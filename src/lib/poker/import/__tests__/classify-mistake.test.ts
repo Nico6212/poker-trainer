@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../../cards';
+import type { Calibration } from '../calibration';
 import { classifySpot } from '../classify-mistake';
 import type { FacingKind, HeroAction, HeroSpot } from '../extract-spots';
 
@@ -22,6 +23,7 @@ function spot(p: Partial<HeroSpot> & { heroCards: [Card, Card]; heroAction: Hero
     limpers: 0,
     villainAllIn: false,
     aggressorSeat: 1,
+    villainPassiveLine: true,
     facedRaiseTo: 0,
     actionIndex: 0,
     ...p,
@@ -31,6 +33,77 @@ function spot(p: Partial<HeroSpot> & { heroCards: [Card, Card]; heroAction: Hero
 const call = (amount = 0): HeroAction => ({ type: 'call', amount });
 const foldA: HeroAction = { type: 'fold', amount: 0 };
 const jam: HeroAction = { type: 'raise', amount: 0, allIn: true };
+
+// Calibration proche des abattages NL2 réels (relance river ~0,86 value, tapis ~0,88).
+const nl2Cal: Calibration = {
+  strongFraction: (action) => (action === 'jamRiver' ? 0.88 : 0.86),
+  weakMix: () => ({ pair: 0.6, draw: 0, air: 0.4 }),
+};
+
+describe('garde — la calibration n’efface pas les vraies erreurs', () => {
+  it('paire moyenne qui paie une relance river → reste une erreur', () => {
+    const m = classifySpot(
+      spot({
+        street: 'river',
+        heroCards: ['8h', '8d'],
+        board: ['Kc', '9s', '4d', '2c', '7h'], // 88 = paire moyenne (sous K, 9)
+        facing: 'raisePostflop',
+        facingBet: true,
+        toCall: 100,
+        potBefore: 200, // requis ~33 %
+        heroAction: call(100),
+      }),
+      { preAggressor: false, calibration: nl2Cal },
+    );
+    expect(m).not.toBeNull();
+    expect(['call-sans-cote', 'call-raise-faible']).toContain(m!.type);
+  });
+
+  it('99 qui paie un tapis FLOP d’un 3-bettor préflop → reste une erreur (shove non calibré)', () => {
+    // Main réelle #262567640019 : 99 paie le tapis flop de mafrera (qui a 3-bet préflop
+    // puis sur-relance tapis sur 6-J-4) et perd contre JJ. Même une calibration très diluante
+    // ne doit PAS sauver ce call : un tapis flop/turn n’a pas de stat de taille → p = 1.
+    const diluteCal: Calibration = {
+      strongFraction: () => 0.4, // forte dilution (si elle s’appliquait)
+      weakMix: () => ({ pair: 0.3, draw: 0, air: 0.7 }), // beaucoup d’air → eqWeak gonflé
+    };
+    const m = classifySpot(
+      spot({
+        street: 'flop',
+        heroCards: ['9s', '9h'],
+        board: ['6h', 'Jh', '4s'],
+        facing: 'raisePostflop',
+        villainAllIn: true,
+        facingBet: true,
+        toCall: 118,
+        potBefore: 336, // requis ~26 %
+        heroAction: call(118),
+      }),
+      { preAggressor: true, calibration: diluteCal },
+    );
+    expect(m).not.toBeNull();
+    expect(['call-sans-cote', 'call-raise-faible']).toContain(m!.type);
+  });
+
+  it('top paire qui paie un tapis river après relance turn → reste une erreur', () => {
+    const m = classifySpot(
+      spot({
+        street: 'river',
+        heroCards: ['Ah', 'Kd'],
+        board: ['As', '9s', '4d', '7c', '2h'], // top paire (As), kicker K
+        facing: 'bet',
+        villainAllIn: true,
+        facingBet: true,
+        toCall: 150,
+        potBefore: 300, // requis ~33 %
+        heroAction: call(150),
+      }),
+      { preAggressor: false, turnHardened: true, calibration: nl2Cal },
+    );
+    expect(m).not.toBeNull();
+    expect(['call-sans-cote', 'call-raise-faible']).toContain(m!.type);
+  });
+});
 
 describe('non-régression — mes vraies mains (adversaires anonymisés)', () => {
   it('Brelan de 5 : call du check-raise turn (39 % pour 24 %) → PAS une erreur', () => {
