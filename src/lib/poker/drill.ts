@@ -1,5 +1,6 @@
 import { createDeck, shuffle, type Card, type RNG } from './cards';
 import { calcEquity } from './equity';
+import { formulasFromBet } from './formulas';
 import { findOuts } from './outs';
 import {
   CHART_LABELS,
@@ -48,7 +49,8 @@ export type DrillQuestion =
       call: number;
       answerPct: number;
     }
-  | { kind: 'sizeFlash'; fractionLabel: string; answerPct: number }
+  // Flash « tout découle de b » : équité requise pour payer, MDF, ou fold-équité d'un bluff.
+  | { kind: 'sizeFlash'; variant: 'required' | 'mdf' | 'bluff'; fractionLabel: string; answerPct: number }
   | {
       kind: 'outs';
       hero: [Card, Card];
@@ -165,7 +167,11 @@ export function generateDrill(pack: DrillPack, rng: RNG): DrillQuestion {
     }
     case 'sizeFlash': {
       const { fraction, label } = SIZE_TABLE[Math.floor(rng() * SIZE_TABLE.length)];
-      return { kind, fractionLabel: label, answerPct: requiredForFraction(fraction) };
+      const variant = (['required', 'mdf', 'bluff'] as const)[Math.floor(rng() * 3)];
+      const f = formulasFromBet(fraction);
+      const answerPct =
+        variant === 'required' ? f.requiredToCall : variant === 'mdf' ? f.mdf : f.bluffFoldEquity;
+      return { kind, variant, fractionLabel: label, answerPct };
     }
     case 'outs': {
       // On retire des spots jusqu'à trouver un vrai tirage (derrière, avec des outs).
@@ -362,11 +368,13 @@ export function gradeDrill(question: DrillQuestion, answer: number | boolean | s
     case 'sizeFlash': {
       const guess = (answer as number) / 100;
       const ok = Math.abs(guess - question.answerPct) <= 0.02 + 1e-9;
-      return {
-        ok,
-        actualText: pct(question.answerPct),
-        explain: `Mise ${question.fractionLabel} → ${pct(question.answerPct)}. À mémoriser comme un fait : ⅓→20, ½→25, ⅔→29, pot→33.`,
-      };
+      const explain =
+        question.variant === 'required'
+          ? `Il mise ${question.fractionLabel} → payer demande ${pct(question.answerPct)}. b/(1+2b) : ⅓→20, ½→25, ⅔→29, pot→33.`
+          : question.variant === 'mdf'
+            ? `Face à ${question.fractionLabel}, défends au moins ${pct(question.answerPct)} de ta range (MDF = 1/(1+b)) : ½→67, ⅔→60, pot→50, 2×→33.`
+            : `Ton bluff ${question.fractionLabel} doit le faire coucher ${pct(question.answerPct)} (b/(1+b)) : ½→33, ⅔→40, pot→50, 2×→67.`;
+      return { ok, actualText: pct(question.answerPct), explain };
     }
     case 'outs': {
       const ok = Math.abs((answer as number) - question.answer) <= 1;

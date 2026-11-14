@@ -154,6 +154,18 @@ describe('generateDrill', () => {
     expect(gradeDrill(bluff, 46).ok).toBe(false);
   });
 
+  it('sizeFlash : les trois formules sortent et collent à formulasFromBet', () => {
+    const seen = new Set<string>();
+    for (let seed = 0; seed < 90; seed++) {
+      const q = generateDrill('sizeFlash', mulberry32(seed));
+      if (q.kind !== 'sizeFlash') throw new Error('mauvais type');
+      seen.add(q.variant);
+      expect(q.answerPct).toBeGreaterThan(0);
+      expect(q.answerPct).toBeLessThan(1);
+    }
+    expect(seen.size).toBe(3); // required, mdf, bluff
+  });
+
   it('mixed : produit les différents types', () => {
     const kinds = new Set<string>();
     for (let seed = 0; seed < 40; seed++) {
@@ -199,10 +211,19 @@ describe('masteryLevel — À travailler / En progrès / Acquis', () => {
 
 describe('gradeDrill', () => {
   it('flash-cards : tolérance serrée de ±2 points', () => {
-    const q = { kind: 'sizeFlash', fractionLabel: '½ pot', answerPct: 0.25 } as const;
+    const q = { kind: 'sizeFlash', variant: 'required', fractionLabel: '½ pot', answerPct: 0.25 } as const;
     expect(gradeDrill(q, 25).ok).toBe(true);
     expect(gradeDrill(q, 27).ok).toBe(true);
     expect(gradeDrill(q, 29).ok).toBe(false);
+  });
+
+  it('flash-cards : variantes MDF et bluff avec la bonne explication', () => {
+    const mdfQ = { kind: 'sizeFlash', variant: 'mdf', fractionLabel: 'pot', answerPct: 0.5 } as const;
+    expect(gradeDrill(mdfQ, 50).ok).toBe(true);
+    expect(gradeDrill(mdfQ, 50).explain).toContain('MDF');
+    const bluffQ = { kind: 'sizeFlash', variant: 'bluff', fractionLabel: 'pot', answerPct: 0.5 } as const;
+    expect(gradeDrill(bluffQ, 50).ok).toBe(true);
+    expect(gradeDrill(bluffQ, 50).explain).toContain('coucher');
   });
 
   it('cote du pot : tolérance de ±5 points', () => {

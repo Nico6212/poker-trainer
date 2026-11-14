@@ -141,7 +141,7 @@ function ResultBanner({
 
 const DRILL_LABELS: Record<string, string> = {
   potOdds: 'Cote du pot',
-  sizeFlash: 'Tailles → % (flash)',
+  sizeFlash: 'Formules (flash)',
   betSize: 'Combien miser ?',
   outs: 'Outs',
   equity: 'Équité',
@@ -216,7 +216,7 @@ export function Table() {
 
   // Séance guidée du jour : affichée tant qu'elle n'a pas été fermée aujourd'hui.
   const [planHidden, setPlanHidden] = useState(true);
-  const [weakestPack, setWeakestPack] = useState('Tailles → % (flash)');
+  const [weakestPack, setWeakestPack] = useState('Formules (flash)');
   useEffect(() => {
     const key = `poker-plan-${new Date().toISOString().slice(0, 10)}`;
     setPlanHidden(localStorage.getItem(key) === '1');

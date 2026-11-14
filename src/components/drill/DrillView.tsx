@@ -30,7 +30,7 @@ const SPRINT_MS = 120_000;
 
 const PACKS: { key: DrillPack; label: string; description: string }[] = [
   { key: 'potOdds', label: 'Cote du pot', description: 'Pot + mise → il te faut combien ?' },
-  { key: 'sizeFlash', label: 'Tailles → % (flash)', description: '« Il mise ½ pot » → 25 %. À connaître par cœur.' },
+  { key: 'sizeFlash', label: 'Formules (flash)', description: 'Tout découle de b : équité requise, MDF, fold d’un bluff. Par cœur.' },
   { key: 'betSize', label: 'Combien miser ?', description: 'L’attaque : open, 3-bet, fraction du pot, bluff — à toi de donner la taille.' },
   { key: 'outs', label: 'Outs', description: 'Compte les cartes qui te font passer devant.' },
   { key: 'equity', label: 'Équité', description: 'Estime tes chances contre une range.' },
@@ -194,7 +194,20 @@ function QuestionPrompt({ question }: { question: DrillQuestion }) {
     case 'sizeFlash':
       return (
         <p className="text-lg">
-          Il mise <strong>{question.fractionLabel}</strong> → il te faut combien ?
+          {question.variant === 'required' ? (
+            <>
+              Il mise <strong>{question.fractionLabel}</strong> → il te faut combien d’équité ?
+            </>
+          ) : question.variant === 'mdf' ? (
+            <>
+              Il mise <strong>{question.fractionLabel}</strong> → quelle part de ta range défendre
+              (MDF) ?
+            </>
+          ) : (
+            <>
+              Tu bluffes <strong>{question.fractionLabel}</strong> → il doit coucher combien ?
+            </>
+          )}
         </p>
       );
     case 'outs':
