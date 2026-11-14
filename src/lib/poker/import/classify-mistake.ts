@@ -137,8 +137,15 @@ function genuineTwoPair(combo: [Card, Card], boardRanks: Set<string>): boolean {
 /**
  * Range qui mise/relance la river selon la ligne. Pour la ligne passive on mélange ~15 %
  * de bluffs (hauteurs = tirages ratés) : contre une main faite, le héros les bat tous.
+ * `includeBluffs=false` → range value-only : quand la calibration prend le relais, les
+ * bluffs viennent de la portion (1 − p) (sinon ils seraient comptés deux fois).
  */
-function riverVillainRange(board: Card[], dead: Card[], line: RiverLine): [Card, Card][] {
+function riverVillainRange(
+  board: Card[],
+  dead: Card[],
+  line: RiverLine,
+  includeBluffs = true,
+): [Card, Card][] {
   const deadSet = new Set<Card>([...board, ...dead]);
   const deck = createDeck().filter((c) => !deadSet.has(c));
   const boardRanks = new Set(board.map((c) => c[0]));
@@ -168,7 +175,7 @@ function riverVillainRange(board: Card[], dead: Card[], line: RiverLine): [Card,
     }
   }
 
-  if (line !== 'passive' || value.length === 0 || bluffs.length === 0) return value;
+  if (!includeBluffs || line !== 'passive' || value.length === 0 || bluffs.length === 0) return value;
 
   // Sous-échantillonne les bluffs pour peser ~15 % de la range finale.
   const nBluff = Math.min(bluffs.length, Math.round((value.length * RIVER_BLUFF_RATIO) / (1 - RIVER_BLUFF_RATIO)));
@@ -267,6 +274,12 @@ export function classifySpot(
 
   const isJam = spot.heroAction.type === 'bet' || spot.heroAction.type === 'raise';
 
+  // Action adverse trackée + fraction value calibrée (p). On décide d'emblée si on calibre :
+  // si oui, eqValue sera VALUE-ONLY (les bluffs ne viennent que de la portion 1 − p).
+  const vAction = !isJam && spot.facingBet ? spotVillainAction(spot) : null;
+  const p = ctx.calibration && vAction ? ctx.calibration.strongFraction(vAction, spot.bb) : 1;
+  const calibrating = vAction != null && p < 0.999;
+
   // Sur la river, un call/fold face à une mise ou relance : la range dépend de la LIGNE
   // du vilain (passive → élargie + bluffs ; durcie au turn → strict ; relance river → serré).
   let villainRangeDesc: string | undefined;
@@ -278,7 +291,7 @@ export function classifySpot(
         : ctx.turnHardened
           ? 'hardened'
           : 'passive';
-    villain = riverVillainRange(spot.board, spot.heroCards, line);
+    villain = riverVillainRange(spot.board, spot.heroCards, line, !calibrating);
     villainRangeDesc = RIVER_LINE_DESC[line];
   } else {
     // Un call face à une petite agression → range large ; sinon nuttée. La range qui PAIE
@@ -308,31 +321,26 @@ export function classifySpot(
     rng: rng ?? mulberry32(seed),
   }).equity;
 
-  // Calibration sur tes abattages : pour un call/fold face à une agression trackée,
-  // on pondère value (a priori) et faible (observé). Sans données, p = 1 → équité inchangée.
+  // Calibration sur tes abattages : avec prob. p le vilain a la range value (eqValue,
+  // désormais value-only), avec prob. (1 − p) une range faible observée (eqWeak, qui PORTE
+  // les bluffs). Sans données (p = 1), équité inchangée.
   let equity = eqValue;
-  let pDebug = 1;
   let eqWeakDebug: number | null = null;
-  const vAction = !isJam && spot.facingBet ? spotVillainAction(spot) : null;
-  if (ctx.calibration && vAction) {
-    const p = ctx.calibration.strongFraction(vAction, spot.bb);
-    pDebug = p;
-    if (p < 0.999) {
-      const weak = weakRange(spot.board, spot.heroCards, ctx.calibration.weakMix(vAction, spot.bb));
-      const eqWeak = weak.length
-        ? calcEquity({
-            hero: spot.heroCards,
-            board: spot.board,
-            villainCombos: weak,
-            iterations: EQUITY_ITERS,
-            rng: rng ?? mulberry32((seed ^ 0x9e3779b9) >>> 0),
-          }).equity
-        : eqValue;
-      eqWeakDebug = eqWeak;
-      equity = p * eqValue + (1 - p) * eqWeak;
-    }
+  if (ctx.calibration && calibrating) {
+    const weak = weakRange(spot.board, spot.heroCards, ctx.calibration.weakMix(vAction!, spot.bb));
+    const eqWeak = weak.length
+      ? calcEquity({
+          hero: spot.heroCards,
+          board: spot.board,
+          villainCombos: weak,
+          iterations: EQUITY_ITERS,
+          rng: rng ?? mulberry32((seed ^ 0x9e3779b9) >>> 0),
+        }).equity
+      : eqValue;
+    eqWeakDebug = eqWeak;
+    equity = p * eqValue + (1 - p) * eqWeak;
   }
-  ctx.debug?.({ vAction, p: pDebug, eqValue, eqWeak: eqWeakDebug, equity, required });
+  ctx.debug?.({ vAction, p, eqValue, eqWeak: eqWeakDebug, equity, required });
 
   if (spot.heroAction.type === 'call') {
     // Strictement la cote du pot contre la range scénarisée : mieux vaut rater un spot
