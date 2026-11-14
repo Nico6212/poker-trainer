@@ -72,3 +72,7 @@ src/
 ```
 
 Tous les montants du moteur sont en **centimes entiers** (ou en jetons) : aucun flottant.
+
+## Dette technique
+
+- **Thème sombre** : `globals.css` remappe la palette Tailwind `neutral` sur `slate` pour unifier le sombre sans réécrire tous les composants d'un coup. Remplacer progressivement `neutral` par `slate` dans les composants, puis supprimer le remappage (`@theme` dans `globals.css`).

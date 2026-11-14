@@ -4,8 +4,13 @@
    préférence système : l'app est sombre pour tout le monde, cohérente avec le nav. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Remappe la palette « neutral » (utilisée par les composants historiques) sur
-   « slate », pour un sombre cohérent avec le nav/footer et les écrans GTO. */
+/* DETTE TECHNIQUE — remappage transitoire.
+   Les composants historiques (table, Drill, Import, Mes erreurs) utilisent la
+   palette Tailwind « neutral » ; le nav/footer et les écrans GTO utilisent « slate ».
+   Pour unifier le sombre sans réécrire des centaines de classes d'un coup, on remappe
+   ici « neutral » sur les valeurs « slate ».
+   À résorber : remplacer progressivement `neutral-*` par `slate-*` dans les composants,
+   puis SUPPRIMER ce bloc @theme (cf. README « Dette technique »). */
 @theme {
   --color-neutral-50: #f8fafc;
   --color-neutral-100: #f1f5f9;

@@ -9,7 +9,7 @@ export function SiteFooter() {
       <p className="mx-auto max-w-2xl">
         Outil d’entraînement, sans argent réel. Ne pas utiliser pendant une partie en ligne.
       </p>
-      <p className="mx-auto mt-1.5 max-w-2xl text-slate-500">
+      <p className="mx-auto mt-1.5 max-w-2xl text-slate-400">
         Réservé aux personnes majeures. Les jeux d’argent et de hasard peuvent être dangereux : pertes
         d’argent, conflits familiaux, addiction… Retrouvez des conseils sur{' '}
         <a
