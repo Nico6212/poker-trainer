@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 // Prototype visuel (maquette) de la nouvelle interface « GTO solver », dark.
@@ -142,7 +143,13 @@ export default function ApercuPage() {
   const [bet, setBet] = useState('0,06');
   const [picked, setPicked] = useState<string | null>(null);
 
-  const navItems = ['Table', 'Drill', 'Import', 'Mes erreurs', 'Aide'];
+  const navItems = [
+    { label: 'Table', href: '/apercu' },
+    { label: 'Drill', href: '/apercu/drill' },
+    { label: 'Import', href: '/import' },
+    { label: 'Mes erreurs', href: '/mes-erreurs' },
+    { label: 'Aide', href: '#' },
+  ];
   const sizes = [
     { label: '½ pot', value: '0,06' },
     { label: '¾ pot', value: '0,09' },
@@ -163,17 +170,17 @@ export default function ApercuPage() {
         </span>
         <nav className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {navItems.map((item) => (
-            <button
-              key={item}
-              type="button"
+            <Link
+              key={item.label}
+              href={item.href}
               className={`shrink-0 rounded-md px-2.5 py-1 font-medium transition ${
-                item === 'Table'
+                item.label === 'Table'
                   ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
                   : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
-              {item}
-            </button>
+              {item.label}
+            </Link>
           ))}
         </nav>
       </header>
