@@ -112,6 +112,43 @@ export async function saveImport(
   return { newHands, duplicates };
 }
 
+/**
+ * Fusionne une sauvegarde : ajoute les mains/erreurs ABSENTES (dédoublonnage par id),
+ * sans toucher aux existantes (progression de répétition espacée préservée).
+ */
+export async function mergeImport(
+  hands: ParsedHand[],
+  mistakes: StoredMistake[],
+): Promise<{ addedHands: number; addedMistakes: number }> {
+  const db = await open();
+  const existingHands = new Set((await getAll<ParsedHand>(HANDS)).map((h) => h.id));
+  const existingMistakes = new Set((await getAll<StoredMistake>(MISTAKES)).map((m) => m.id));
+  let addedHands = 0;
+  let addedMistakes = 0;
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction([HANDS, MISTAKES], 'readwrite');
+    const hs = t.objectStore(HANDS);
+    const ms = t.objectStore(MISTAKES);
+    for (const h of hands) {
+      if (h?.id && !existingHands.has(h.id)) {
+        existingHands.add(h.id);
+        hs.put(h);
+        addedHands += 1;
+      }
+    }
+    for (const m of mistakes) {
+      if (m?.id && !existingMistakes.has(m.id)) {
+        existingMistakes.add(m.id);
+        ms.put(m);
+        addedMistakes += 1;
+      }
+    }
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+  return { addedHands, addedMistakes };
+}
+
 /** Persiste une révision (nouvelle boîte/échéance) après un rejeu. */
 export async function updateMistakeReview(id: string, review: Review): Promise<void> {
   const db = await open();

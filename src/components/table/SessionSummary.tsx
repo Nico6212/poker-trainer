@@ -66,20 +66,21 @@ export function SessionSummary({ data, stats, mode, bb, onClose, onNewSession }:
   const reviewRecord =
     reviewHandId !== null ? data.hands.find((h) => h.handId === reviewHandId) : undefined;
 
-  const doExport = () => {
-    const blob = new Blob([exportBackup()], { type: 'application/json' });
+  const doExport = async () => {
+    const blob = new Blob([await exportBackup()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `poker-trainer-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `poker-trainer-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
   const doImport = (file: File | undefined) => {
     if (!file) return;
-    void file.text().then((text) => {
-      if (importBackup(text)) {
+    void file.text().then(async (text) => {
+      const res = await importBackup(text);
+      if (res) {
         window.location.reload();
       } else {
         window.alert('Fichier de sauvegarde non reconnu.');

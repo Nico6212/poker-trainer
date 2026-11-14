@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { BackupButtons } from '@/components/BackupButtons';
 import { SiteNav } from '@/components/SiteNav';
 import { countImport } from '@/lib/poker/import/db';
 
@@ -109,10 +110,19 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Bandeau confiance */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-center text-sm text-slate-400">
-          Gratuit, sans inscription, sans argent réel.{' '}
-          <span className="text-slate-300">Tes données restent dans ton navigateur.</span>
+        {/* Bandeau confiance + sauvegarde */}
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-4 text-center text-sm text-slate-400">
+          <p>
+            Gratuit, sans inscription, sans argent réel.{' '}
+            <span className="text-slate-300">Tes données restent dans ton navigateur.</span>
+          </p>
+          <BackupButtons />
+          <p className="text-xs text-slate-500">
+            Pas de compte : exporte ta progression pour changer d’appareil.{' '}
+            <Link href="/confidentialite" className="text-emerald-400 underline">
+              En savoir plus
+            </Link>
+          </p>
         </div>
       </main>
     </div>

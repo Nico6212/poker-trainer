@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SiteFooter } from "@/components/SiteFooter";
 import "./globals.css";
 
 /** Colore la barre du navigateur mobile aux couleurs de la feutrine. */
@@ -43,9 +44,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col">
         {children}
-        <footer className="px-4 py-3 text-center text-xs text-neutral-400 dark:text-neutral-600">
-          Outil d&apos;entraînement, sans argent réel. Ne pas utiliser pendant une partie en ligne.
-        </footer>
+        <SiteFooter />
       </body>
     </html>
   );
