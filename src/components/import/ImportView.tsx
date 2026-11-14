@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Card } from '@/lib/poker/cards';
+import { buildCalibration } from '@/lib/poker/import/calibration';
 import { classifyHand, type Mistake } from '@/lib/poker/import/classify-mistake';
 import { clearImport, loadAllinCache, saveAllinEvals, saveImport } from '@/lib/poker/import/db';
 import { rakeByLimit, rakeSummary } from '@/lib/poker/import/rake';
@@ -192,9 +193,11 @@ export function ImportView() {
       const unique = new Map(hands.map((h) => [h.id, h]));
       const uniqueHands = [...unique.values()];
 
+      // Calibration des ranges sur les abattages observés (toutes les mains importées).
+      const calibration = buildCalibration(uniqueHands);
       const mistakes: Mistake[] = [];
       for (let i = 0; i < uniqueHands.length; i++) {
-        mistakes.push(...classifyHand(uniqueHands[i]));
+        mistakes.push(...classifyHand(uniqueHands[i], calibration));
         if (i % 10 === 0) {
           setProgress(`Analyse des mains… ${i + 1}/${uniqueHands.length}`);
           await yieldToUI();

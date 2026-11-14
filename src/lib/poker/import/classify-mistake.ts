@@ -1,8 +1,11 @@
 import { createDeck, mulberry32, rankValue, type Card, type RNG, type Rank } from '../cards';
 import { calcEquity } from '../equity';
 import { boardTexture, categoryOf, categoryRank } from '../hand-reading';
-import type { ParsedHand } from './parse-pokerstars';
+import { weakRange, type Calibration } from './calibration';
+import { hasBigDraw } from './draws';
 import { extractSpots, type HeroSpot } from './extract-spots';
+import type { ParsedHand } from './parse-pokerstars';
+import type { VillainAction } from './showdown-stats';
 
 // Classification des erreurs d'un spot importé. Deux familles :
 // - déterministes (sizing préflop, call de 4-bet) — pas d'équité ;
@@ -102,64 +105,6 @@ export function nl2VillainRange(
   return combos;
 }
 
-function suitCount(cards: Card[]): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const c of cards) m.set(c[1], (m.get(c[1]) ?? 0) + 1);
-  return m;
-}
-
-/** Valeurs de rangs présentes (l'as compte haut ET bas), pour détecter les quintes. */
-function rankValueSet(cards: Card[]): Set<number> {
-  const s = new Set<number>();
-  for (const c of cards) {
-    const v = rankValue(c[0] as Rank);
-    s.add(v);
-    if (v === 14) s.add(1);
-  }
-  return s;
-}
-
-function hasStraight(vals: Set<number>): boolean {
-  for (let lo = 1; lo <= 10; lo++) {
-    let ok = true;
-    for (let k = 0; k < 5; k++) {
-      if (!vals.has(lo + k)) {
-        ok = false;
-        break;
-      }
-    }
-    if (ok) return true;
-  }
-  return false;
-}
-
-/** Nombre de rangs distincts qui complètent une quinte (≥ 2 = tirage bilatéral / double ventral). */
-function straightCompletions(vals: Set<number>): number {
-  let n = 0;
-  for (let r = 2; r <= 14; r++) {
-    if (vals.has(r)) continue;
-    const s = new Set(vals);
-    s.add(r);
-    if (r === 14) s.add(1);
-    if (hasStraight(s)) n += 1;
-  }
-  return n;
-}
-
-/** Tirage couleur (4 à la couleur avec une carte privée) ou tirage quinte à ≥ 2 outs. */
-function hasBigDraw(combo: [Card, Card], board: Card[]): boolean {
-  const counts = suitCount([...board, ...combo]);
-  for (const [suit, cnt] of counts) {
-    if (cnt === 4 && combo.some((c) => c[1] === suit)) return true;
-  }
-  const allVals = rankValueSet([...board, ...combo]);
-  if (hasStraight(allVals)) return false; // quinte faite = value, déjà comptée
-  const boardVals = rankValueSet(board);
-  return (
-    straightCompletions(allVals) >= 2 &&
-    straightCompletions(allVals) > straightCompletions(boardVals)
-  );
-}
 
 function handClassOf(cards: [Card, Card]): string {
   const a = cards[0][0];
@@ -237,7 +182,7 @@ function riverVillainRange(board: Card[], dead: Card[], line: RiverLine): [Card,
 /** Un spot préflop ou postflop → une erreur, ou null. ctx.preAggressor = l'agresseur a 3-bet+ préflop. */
 export function classifySpot(
   spot: HeroSpot,
-  ctx: { preAggressor: boolean; turnHardened?: boolean },
+  ctx: { preAggressor: boolean; turnHardened?: boolean; calibration?: Calibration },
   rng?: RNG,
 ): Mistake | null {
   const mk = (type: MistakeType, detail: string, extra?: Partial<Mistake>): Mistake => ({
@@ -340,13 +285,34 @@ export function classifySpot(
   const seed =
     [...spot.heroCards, ...spot.board].join('').split('').reduce((s, c) => s * 31 + c.charCodeAt(0), 7) >>>
     0;
-  const { equity } = calcEquity({
+  const eqValue = calcEquity({
     hero: spot.heroCards,
     board: spot.board,
     villainCombos: villain.length > 0 ? villain : null, // [] → main aléatoire (range large)
     iterations: EQUITY_ITERS,
     rng: rng ?? mulberry32(seed),
-  });
+  }).equity;
+
+  // Calibration sur tes abattages : pour un call/fold face à une agression trackée,
+  // on pondère value (a priori) et faible (observé). Sans données, p = 1 → équité inchangée.
+  let equity = eqValue;
+  const vAction = !isJam && spot.facingBet ? spotVillainAction(spot) : null;
+  if (ctx.calibration && vAction) {
+    const p = ctx.calibration.strongFraction(vAction, spot.bb);
+    if (p < 0.999) {
+      const weak = weakRange(spot.board, spot.heroCards, ctx.calibration.weakMix(vAction, spot.bb));
+      const eqWeak = weak.length
+        ? calcEquity({
+            hero: spot.heroCards,
+            board: spot.board,
+            villainCombos: weak,
+            iterations: EQUITY_ITERS,
+            rng: rng ?? mulberry32((seed ^ 0x9e3779b9) >>> 0),
+          }).equity
+        : eqValue;
+      equity = p * eqValue + (1 - p) * eqWeak;
+    }
+  }
 
   if (spot.heroAction.type === 'call') {
     // Strictement la cote du pot contre la range scénarisée : mieux vaut rater un spot
@@ -389,6 +355,21 @@ export function classifySpot(
   return null;
 }
 
+/** Mappe un spot (call/fold face à une agression) vers une action adverse trackée, pour la calibration. */
+function spotVillainAction(spot: HeroSpot): VillainAction | null {
+  if (spot.street === 'preflop') return null;
+  if (spot.street === 'river') {
+    if (spot.villainAllIn) return 'jamRiver';
+    if (spot.facing === 'checkRaise') return 'checkRaise';
+    if (spot.facing === 'raisePostflop') return 'raiseRiver';
+    if (spot.facing === 'bet') return 'betRiverAfterPassive';
+    return null;
+  }
+  if (spot.facing === 'checkRaise') return 'checkRaise';
+  if (spot.facing === 'raisePostflop') return spot.street === 'flop' ? 'raiseFlop' : 'raiseTurn';
+  return null;
+}
+
 function facingLabel(facing: HeroSpot['facing']): string {
   switch (facing) {
     case 'checkRaise':
@@ -424,14 +405,15 @@ function turnHardened(hand: ParsedHand): boolean {
   );
 }
 
-/** Classe toutes les décisions du héros d'une main importée. */
-export function classifyHand(hand: ParsedHand): Mistake[] {
+/** Classe toutes les décisions du héros d'une main importée. calibration optionnelle. */
+export function classifyHand(hand: ParsedHand, calibration?: Calibration): Mistake[] {
   const out: Mistake[] = [];
   const hardened = turnHardened(hand);
   for (const spot of extractSpots(hand)) {
     const m = classifySpot(spot, {
       preAggressor: isPreAggressor(hand, spot.aggressorSeat),
       turnHardened: hardened,
+      calibration,
     });
     if (m) out.push(m);
   }

@@ -12,6 +12,7 @@ const ITEMS = [
   { label: 'Drill', href: '/drill' },
   { label: 'Import', href: '/import' },
   { label: 'Mes erreurs', href: '/mes-erreurs' },
+  { label: 'Mes adversaires', href: '/mes-adversaires' },
   { label: 'Aide', href: '/aide/import' },
 ];
 
