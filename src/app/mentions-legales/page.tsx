@@ -18,26 +18,31 @@ export default function MentionsLegalesPage() {
         <section className={SECTION}>
           <h2 className="font-semibold text-slate-100">Éditeur du site</h2>
           <div className="mt-2 space-y-1 text-sm text-slate-300">
+            <p>Elaphe Studio (Nicolas Hochart)</p>
             <p>
-              Nom / raison sociale : <span className={TODO}>à compléter (nom ou Elaphe Studio)</span>
+              Statut : <span className={TODO}>à compléter</span>
             </p>
             <p>
-              Statut : <span className={TODO}>à compléter (ex. auto-entrepreneur, SASU…)</span>
+              SIRET : <span className={TODO}>à compléter</span>
             </p>
             <p>
-              Adresse : <span className={TODO}>à compléter (adresse professionnelle)</span>
+              Adresse : <span className={TODO}>à compléter</span>
             </p>
             <p>
-              Contact : <span className={TODO}>à compléter (e-mail de contact)</span>
+              Contact :{' '}
+              <a href="mailto:contact.elaphestudio@gmail.com" className="text-emerald-400 underline">
+                contact.elaphestudio@gmail.com
+              </a>
+            </p>
+            <p>
+              Téléphone : <span className={TODO}>à compléter</span>
             </p>
           </div>
         </section>
 
         <section className={SECTION}>
           <h2 className="font-semibold text-slate-100">Directeur de la publication</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            <span className={TODO}>à compléter (nom du responsable de publication)</span>
-          </p>
+          <p className="mt-2 text-sm text-slate-300">Nicolas Hochart</p>
         </section>
 
         <section className={SECTION}>
