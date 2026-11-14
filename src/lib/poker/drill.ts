@@ -1,7 +1,7 @@
 import { createDeck, shuffle, type Card, type RNG } from './cards';
 import { calcEquity } from './equity';
 import { formulasFromBet } from './formulas';
-import { findOuts } from './outs';
+import { findOuts, ruleOf2and4Corrected } from './outs';
 import {
   CHART_LABELS,
   PUSH_BUCKETS,
@@ -379,12 +379,16 @@ export function gradeDrill(question: DrillQuestion, answer: number | boolean | s
     case 'outs': {
       const ok = Math.abs((answer as number) - question.answer) <= 1;
       const onFlop = question.board.length === 3;
-      const mult = onFlop ? 4 : 2;
-      return {
-        ok,
-        actualText: `${question.answer} outs`,
-        explain: `${question.answer} outs × ${mult} ≈ ${Math.min(100, question.answer * mult)} % sur ${onFlop ? 'deux cartes (turn + river)' : 'une carte (la river)'}.`,
-      };
+      const cards: 1 | 2 = onFlop ? 2 : 1;
+      const n = question.answer;
+      const estPct = Math.round(ruleOf2and4Corrected(n, cards) * 100);
+      const street = onFlop ? 'deux cartes (turn + river)' : 'une carte (la river)';
+      // Au-delà de 8 outs sur deux cartes, le × 4 surévalue : on bascule sur 3n + 8.
+      const formula =
+        cards === 2 && n > 8
+          ? `3 × ${n} + 8 ≈ ${estPct} % sur ${street} (au-delà de 8 outs, le × 4 surévalue)`
+          : `${n} × ${cards === 2 ? 4 : 2} ≈ ${estPct} % sur ${street}`;
+      return { ok, actualText: `${n} outs`, explain: `${n} outs : ${formula}.` };
     }
     case 'equity': {
       const guess = (answer as number) / 100;

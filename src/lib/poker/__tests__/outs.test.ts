@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../cards';
-import { findOuts, hitOdds, ruleOf2and4 } from '../outs';
+import { findOuts, hitOdds, ruleOf2and4, ruleOf2and4Corrected } from '../outs';
 
 describe('findOuts', () => {
   it('tirage couleur : exactement les 9 cœurs restants', () => {
@@ -54,5 +54,18 @@ describe('hitOdds et règle du 2 et du 4', () => {
     expect(hitOdds(9, 47, 2)).toBeCloseTo(0.35, 2);
     expect(ruleOf2and4(9, 1)).toBeCloseTo(0.18);
     expect(ruleOf2and4(9, 2)).toBeCloseTo(0.36);
+  });
+
+  it('correction 3n+8 au-delà de 8 outs sur deux cartes (le ×4 surévalue)', () => {
+    // ≤ 8 outs : la règle brute (×2 / ×4) est conservée.
+    expect(ruleOf2and4Corrected(8, 2)).toBeCloseTo(0.32);
+    expect(ruleOf2and4Corrected(8, 1)).toBeCloseTo(0.16);
+    // > 8 outs, deux cartes : 3n+8, plus proche de l'exact.
+    expect(ruleOf2and4Corrected(9, 2)).toBeCloseTo(0.35); // vs 36 % brut, exact ≈ 35 %
+    expect(ruleOf2and4Corrected(15, 2)).toBeCloseTo(0.53); // vs 60 % brut, exact ≈ 54 %
+    // > 8 outs mais UNE seule carte : pas de correction (le ×2 ne surévalue pas).
+    expect(ruleOf2and4Corrected(12, 1)).toBeCloseTo(0.24);
+    // Plafonné à 100 %.
+    expect(ruleOf2and4Corrected(25, 2)).toBeLessThanOrEqual(1);
   });
 });

@@ -232,23 +232,25 @@ describe('gradeDrill', () => {
     expect(gradeDrill(q, 31).ok).toBe(false);
   });
 
-  it('outs : ±1 accepté, explication en ×4 au flop et ×2 au turn', () => {
+  it('outs : ±1 accepté, ×4/×2 jusqu’à 8 outs puis correction 3n+8 au flop', () => {
     const q: DrillQuestion = {
       kind: 'outs',
       hero: ['6h', '5h'],
       board: ['Ah', '9h', '2c'],
       villain: ['Ks', 'Kc'],
       villainDescription: 'x',
-      answer: 9,
+      answer: 8,
       outs: [],
     };
-    expect(gradeDrill(q, 9).explain).toContain('× 4');
-    expect(
-      gradeDrill({ ...q, board: ['Ah', '9h', '2c', 'Qs'] }, 9).explain,
-    ).toContain('× 2');
-    expect(gradeDrill(q, 9).ok).toBe(true);
+    // ≤ 8 outs au flop : × 4 classique.
+    expect(gradeDrill(q, 8).explain).toContain('× 4');
+    // 9 outs au flop : bascule sur 3n+8 (le × 4 surévalue).
+    expect(gradeDrill({ ...q, answer: 9 }, 9).explain).toContain('3 × 9 + 8');
+    // Au turn (une carte) : × 2, pas de correction même au-delà de 8 outs.
+    expect(gradeDrill({ ...q, board: ['Ah', '9h', '2c', 'Qs'], answer: 9 }, 9).explain).toContain('× 2');
     expect(gradeDrill(q, 8).ok).toBe(true);
-    expect(gradeDrill(q, 7).ok).toBe(false);
+    expect(gradeDrill(q, 9).ok).toBe(true); // ±1
+    expect(gradeDrill(q, 6).ok).toBe(false);
   });
 
   it('openRange : booléen exact', () => {

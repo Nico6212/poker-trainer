@@ -10,7 +10,7 @@ import {
   type HandState,
 } from '@/lib/poker/engine';
 import { formatAmount, type DisplayMode } from '@/lib/poker/format';
-import { hitOdds, ruleOf2and4 } from '@/lib/poker/outs';
+import { hitOdds, ruleOf2and4Corrected } from '@/lib/poker/outs';
 import { requiredSentence } from '@/lib/poker/pot';
 import type { PreflopVerdict } from '@/lib/poker/preflop-verdict';
 import { CHART_LABELS, type PushFoldSpot } from '@/lib/poker/pushfold';
@@ -298,8 +298,10 @@ export function Panel({
                 ))}
               </div>
               <p>
-                {equity.outs.length} outs × {cardsToCome === 2 ? 4 : 2} ≈{' '}
-                <strong>{pct(ruleOf2and4(equity.outs.length, cardsToCome))}</strong>
+                {cardsToCome === 2 && equity.outs.length > 8
+                  ? `${equity.outs.length} outs : 3 × ${equity.outs.length} + 8 ≈ `
+                  : `${equity.outs.length} outs × ${cardsToCome === 2 ? 4 : 2} ≈ `}
+                <strong>{pct(ruleOf2and4Corrected(equity.outs.length, cardsToCome))}</strong>
                 <span className="text-neutral-500 dark:text-neutral-400">
                   {' '}
                   (exact : {pct(hitOdds(equity.outs.length, unseen, cardsToCome))})

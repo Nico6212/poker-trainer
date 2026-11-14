@@ -82,3 +82,14 @@ export function hitOdds(outsCount: number, unseenCount: number, cardsToCome: 1 |
 export function ruleOf2and4(outsCount: number, cardsToCome: 1 | 2): number {
   return Math.min(1, (outsCount * 2 * cardsToCome) / 100);
 }
+
+/**
+ * Règle du 2 et du 4 CORRIGÉE. Au-delà de 8 outs sur deux cartes, le × 4 surévalue
+ * (il double-compte les tirages qui touchent aux deux cartes) : on passe à 3n + 8,
+ * bien plus proche de l'exact (15 outs → 53 % au lieu de 60 %, exact ≈ 54 %).
+ * Sur une seule carte, le × 2 ne surévalue pas : pas de correction.
+ */
+export function ruleOf2and4Corrected(outsCount: number, cardsToCome: 1 | 2): number {
+  if (cardsToCome === 2 && outsCount > 8) return Math.min(1, (3 * outsCount + 8) / 100);
+  return ruleOf2and4(outsCount, cardsToCome);
+}
