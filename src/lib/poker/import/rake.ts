@@ -4,10 +4,14 @@ import type { ParsedHand } from './parse-pokerstars';
 //  - CONTRIBUÉ (principale) : rake × (investi du héros ÷ total pot) ;
 //  - par main distribuée (ancienne méthode PokerStars) : rake ÷ joueurs distribués.
 
-/** Rake attribué au héros sur une main (méthode contribuée), en centimes. */
+/**
+ * Rake attribué au héros sur une main (méthode contribuée), en centimes DÉCIMAUX.
+ * On n'arrondit JAMAIS par main : sur les petits pots la part (0,3-0,4 c) tomberait
+ * à 0 et des centimes disparaîtraient sur le total. L'arrondi se fait à l'affichage.
+ */
 export function rakeContributed(hand: ParsedHand): number {
   if (hand.totalPot <= 0) return 0;
-  return Math.round((hand.rake * hand.heroInvested) / hand.totalPot);
+  return (hand.rake * hand.heroInvested) / hand.totalPot;
 }
 
 /** Rake par main distribuée (info) : rake ÷ nombre de joueurs distribués, en centimes. */
@@ -44,7 +48,7 @@ export function rakeSummary(hands: ParsedHand[], rakeback = 0): RakeSummary {
   }
   const n = hands.length;
   const per100 = (bb: number) => (n > 0 ? (bb / n) * 100 : 0);
-  const rakebackCents = Math.round(rakeCents * rakeback);
+  const rakebackCents = rakeCents * rakeback; // décimal, arrondi à l'affichage
   return {
     hands: n,
     rakeCents,

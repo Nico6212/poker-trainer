@@ -43,6 +43,10 @@ describe('rakeContributed', () => {
     expect(rakeContributed(hand({ rake: 0, heroInvested: 100, totalPot: 400 }))).toBe(0);
     expect(rakeContributed(hand({ rake: 10, heroInvested: 100, totalPot: 0 }))).toBe(0);
   });
+
+  it('centimes décimaux, aucun arrondi par main : 15 × 200 ÷ 408 = 7,35 c', () => {
+    expect(rakeContributed(hand({ rake: 15, heroInvested: 200, totalPot: 408 }))).toBeCloseTo(7.3529, 3);
+  });
 });
 
 describe('rakeByDistributedHand', () => {
@@ -65,6 +69,12 @@ describe('rakeSummary', () => {
     expect(s.grossBB100).toBeCloseTo(-125);
     // rakeback 50 % : net ajusté = net + rake×0.5 = -5 + 1.25 = -3.75 → -187.5.
     expect(s.adjustedBB100).toBeCloseTo(-187.5);
-    expect(s.rakebackCents).toBe(3); // round(5 × 0.5)
+    expect(s.rakebackCents).toBeCloseTo(2.5); // 5 × 0.5, non arrondi
+  });
+
+  it('somme sans arrondi par main : trois mains à 0,4 c → 1,2 c (et non 0)', () => {
+    const small = hand({ bb: 2, rake: 2, heroInvested: 40, totalPot: 200 }); // 2 × 40 ÷ 200 = 0,4 c
+    const s = rakeSummary([small, small, small]);
+    expect(s.rakeCents).toBeCloseTo(1.2);
   });
 });
