@@ -6,9 +6,14 @@ import { classifyHand, type Mistake } from '@/lib/poker/import/classify-mistake'
 import { clearImport, saveImport } from '@/lib/poker/import/db';
 import { rakeByLimit, rakeSummary } from '@/lib/poker/import/rake';
 import { parsePokerStars, skipLabel, type ParsedHand, type SkipReason } from '@/lib/poker/import/parse-pokerstars';
-import { buildSessions, nlLabel, type Session } from '@/lib/poker/import/sessions';
+import { buildSessions, nlLabel, tablesComparison, type Session } from '@/lib/poker/import/sessions';
+import { winrateCIByLimit, SIGMAS, DEFAULT_SIGMA, MIN_SAMPLE } from '@/lib/poker/confidence';
+import { bankrollByLimit, recommendedMaxStake } from '@/lib/poker/bankroll';
+import { allinAdjustedChunked, type AllinLuck } from '@/lib/poker/import/allin-adjust';
 
 const RAKEBACK_KEY = 'poker-rakeback';
+const SIGMA_KEY = 'poker-sigma';
+const BANKROLL_KEY = 'poker-bankroll-eur';
 // Format français : virgule décimale, signe moins typographique, pas de « + ».
 const frEur = (cents: number) => `${cents < 0 ? '−' : ''}${(Math.abs(cents) / 100).toFixed(2).replace('.', ',')} €`;
 const frBB100 = (x: number) => `${x < 0 ? '−' : ''}${Math.abs(x).toFixed(1).replace('.', ',')} BB/100`;
@@ -75,6 +80,8 @@ export function ImportView() {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [hands, setHands] = useState<ParsedHand[]>([]);
   const [rakeback, setRakeback] = useState(0); // % de rakeback (0-100)
+  const [sigma, setSigma] = useState<number>(DEFAULT_SIGMA);
+  const [bankrollEur, setBankrollEur] = useState('');
   const [summary, setSummary] = useState<{
     hands: number;
     newHands: number;
@@ -84,8 +91,12 @@ export function ImportView() {
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(RAKEBACK_KEY);
-      if (raw !== null) setRakeback(Math.min(100, Math.max(0, Number(raw) || 0)));
+      const rb = window.localStorage.getItem(RAKEBACK_KEY);
+      if (rb !== null) setRakeback(Math.min(100, Math.max(0, Number(rb) || 0)));
+      const sg = window.localStorage.getItem(SIGMA_KEY);
+      if (sg !== null && SIGMAS.includes(Number(sg) as (typeof SIGMAS)[number])) setSigma(Number(sg));
+      const bk = window.localStorage.getItem(BANKROLL_KEY);
+      if (bk !== null) setBankrollEur(bk);
     } catch {
       // stockage indisponible
     }
@@ -96,6 +107,40 @@ export function ImportView() {
   const rake = useMemo(() => (hands.length ? rakeSummary(hands, rb) : null), [hands, rb]);
   const rakePerLimit = useMemo(() => rakeByLimit(hands, rb), [hands, rb]);
   const netCents = useMemo(() => hands.reduce((s, h) => s + h.heroNet, 0), [hands]);
+  const ciByLimit = useMemo(() => winrateCIByLimit(hands, sigma), [hands, sigma]);
+  const tables = useMemo(() => (hands.length ? tablesComparison(hands) : null), [hands]);
+
+  // All-in ajusté : coûteux (Monte-Carlo préflop) → calcul asynchrone chunké, non bloquant.
+  const [allin, setAllin] = useState<AllinLuck | null>(null);
+  const [allinProgress, setAllinProgress] = useState<string | null>(null);
+  useEffect(() => {
+    setAllin(null);
+    if (hands.length === 0) {
+      setAllinProgress(null);
+      return;
+    }
+    let cancelled = false;
+    setAllinProgress('Calcul de la chance all-in…');
+    allinAdjustedChunked(hands, (done, total) => {
+      if (!cancelled && total > 0) setAllinProgress(`Chance all-in… ${done}/${total}`);
+    }).then((res) => {
+      if (!cancelled) {
+        setAllin(res);
+        setAllinProgress(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hands]);
+  const bankrollCents = useMemo(() => {
+    const v = Number(bankrollEur.replace(',', '.'));
+    return Number.isFinite(v) && v > 0 ? Math.round(v * 100) : 0;
+  }, [bankrollEur]);
+  const bankrollLimits = useMemo(
+    () => (bankrollCents > 0 ? bankrollByLimit(bankrollCents, [...new Set(hands.map((h) => h.bb))]) : []),
+    [bankrollCents, hands],
+  );
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -271,6 +316,175 @@ export function ImportView() {
             Rake « contribué » = rake × ta part investie du pot (÷ total pot). Méthode principale.
           </p>
         </div>
+      )}
+
+      {hands.length > 0 && (
+        <section className="flex flex-col gap-3 rounded-xl border border-black/10 bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-neutral-900/70">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-bold">Chance ou compétence ?</h2>
+            <label className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+              Écart-type :
+              {SIGMAS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setSigma(s);
+                    try {
+                      window.localStorage.setItem(SIGMA_KEY, String(s));
+                    } catch {
+                      // indisponible
+                    }
+                  }}
+                  className={`rounded px-1.5 py-0.5 font-semibold ${
+                    sigma === s
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+                      : 'text-neutral-400 hover:text-neutral-600'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </label>
+          </div>
+
+          {ciByLimit.map((ci) =>
+            ci.tooSmall ? (
+              <p key={ci.bb} className="text-xs text-neutral-500 dark:text-neutral-400">
+                <strong>{nlLabel(ci.bb)}</strong> : échantillon trop petit pour conclure ({ci.hands} mains, il
+                en faut {MIN_SAMPLE}).
+              </p>
+            ) : (
+              <div key={ci.bb} className="flex flex-col gap-1">
+                <p>
+                  <strong>{nlLabel(ci.bb)}</strong> — winrate {frBB100(ci.netBB100)}. Ton vrai niveau est
+                  probablement entre <strong>{frBB100(ci.lowBB100!)}</strong> et{' '}
+                  <strong>{frBB100(ci.highBB100!)}</strong>.{' '}
+                  {ci.probWinning! < 0.5 ? 'Tu es probablement perdant' : 'Tu es probablement gagnant'} (
+                  {ci.probWinning! < 0.001
+                    ? 'P < 0,1 %'
+                    : `P ≈ ${(ci.probWinning! * 100).toFixed(1).replace('.', ',')} %`}
+                  ).
+                </p>
+                {(() => {
+                  const lo = ci.lowBB100!;
+                  const hi = ci.highBB100!;
+                  const span = hi - lo || 1;
+                  const pos = (x: number) => Math.max(0, Math.min(100, ((x - lo) / span) * 100));
+                  return (
+                    <div className="relative h-2 rounded bg-neutral-200 dark:bg-neutral-700">
+                      {lo < 0 && hi > 0 && (
+                        <span className="absolute top-[-2px] h-3 w-px bg-neutral-500" style={{ left: `${pos(0)}%` }} />
+                      )}
+                      <span
+                        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-neutral-900"
+                        style={{ left: `${pos(ci.grossBB100)}%` }}
+                        title={`brut ${frBB100(ci.grossBB100)}`}
+                      />
+                      <span
+                        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900"
+                        style={{ left: `${pos(ci.netBB100)}%` }}
+                        title={`net ${frBB100(ci.netBB100)}`}
+                      />
+                    </div>
+                  );
+                })()}
+                <p className="text-[11px] text-neutral-400">
+                  ● net ● <span className="text-emerald-600 dark:text-emerald-400">brut</span> · 0 = seuil ·
+                  mains pour ±10 BB/100 : {ci.handsForMargin10.toLocaleString('fr-FR')}
+                </p>
+              </div>
+            ),
+          )}
+
+          {allinProgress && <p className="text-xs text-sky-700 dark:text-sky-300">{allinProgress}</p>}
+
+          {allin && allin.hands > 0 && (
+            <div className="text-xs text-neutral-600 dark:text-neutral-300">
+              <p>
+                <strong>Résultat ajusté à l’all-in</strong> : {allin.hands} tapis à cartes connues · chance
+                totale <strong>{frEur(allin.luckCents)}</strong>{' '}
+                {allin.luckCents >= 0 ? '(tu as sur-performé l’espérance)' : '(tu as sous-performé)'}
+                {allin.skipped > 0 ? ` · ${allin.skipped} ignorés (multiway/side pot)` : ''}.
+              </p>
+              {allin.byLimit.length > 0 && (
+                <p className="text-neutral-400">
+                  {allin.byLimit.map((l) => `${nlLabel(l.bb)} ${frBB100(l.luckBB100)}`).join(' · ')}
+                </p>
+              )}
+            </div>
+          )}
+
+          {tables && (tables.few.hands > 0 || tables.many.hands > 0) && (
+            <p className="text-xs text-neutral-600 dark:text-neutral-300">
+              <strong>Tables simultanées</strong> :{' '}
+              {tables.comparable ? (
+                <>
+                  1-2 tables → {tables.few.hands} mains, {frBB100(tables.few.netBB100)} · 3+ tables →{' '}
+                  {tables.many.hands} mains, {frBB100(tables.many.netBB100)}.
+                </>
+              ) : (
+                <>
+                  trop peu de mains pour comparer (1-2 : {tables.few.hands} · 3+ : {tables.many.hands}, il en
+                  faut {MIN_SAMPLE} de chaque côté).
+                </>
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
+      {hands.length > 0 && (
+        <section className="flex flex-col gap-2 rounded-xl border border-black/10 bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-neutral-900/70">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-bold">Bankroll</h2>
+            <label className="flex items-center gap-1.5 text-xs">
+              Ma bankroll :
+              <input
+                inputMode="decimal"
+                value={bankrollEur}
+                placeholder="19"
+                onChange={(e) => {
+                  setBankrollEur(e.target.value);
+                  try {
+                    window.localStorage.setItem(BANKROLL_KEY, e.target.value);
+                  } catch {
+                    // indisponible
+                  }
+                }}
+                className="w-20 rounded-md border border-neutral-300 bg-white px-2 py-1 text-right dark:border-neutral-600 dark:bg-neutral-800"
+              />
+              €
+            </label>
+          </div>
+          {bankrollCents > 0 ? (
+            <>
+              <ul className="flex flex-col gap-0.5 text-xs">
+                {bankrollLimits.map(({ bb, caves, underMin }) => (
+                  <li key={bb} className={underMin ? 'text-red-600 dark:text-red-400' : ''}>
+                    {nlLabel(bb)} : {caves.toFixed(1).replace('.', ',')} caves
+                    {underMin ? ' ⚠ sous le seuil de 20 caves' : ''}
+                  </li>
+                ))}
+              </ul>
+              {(() => {
+                const r = recommendedMaxStake(bankrollCents);
+                return (
+                  <p className="text-xs text-neutral-600 dark:text-neutral-300">
+                    {r.bb !== null
+                      ? `Limite max conseillée (30 caves) : ${nlLabel(r.bb)}.`
+                      : `Pas encore 30 caves pour NL2 : il te faut ${frEur(r.neededCentsForNL2)}.`}
+                  </p>
+                );
+              })()}
+            </>
+          ) : (
+            <p className="text-xs text-neutral-400">
+              Saisis ta bankroll (elle n’est pas déduite des mains : dépôts et retraits manquent) pour voir tes
+              caves par limite.
+            </p>
+          )}
+        </section>
       )}
 
       {sessions &&

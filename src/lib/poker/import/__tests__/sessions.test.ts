@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../../cards';
 import type { ParsedAction, ParsedHand } from '../parse-pokerstars';
-import { buildSessions, groupSessions, maxSimultaneousTables } from '../sessions';
+import { buildSessions, groupSessions, maxSimultaneousTables, tablesComparison } from '../sessions';
 
 const T0 = Date.parse('2024-03-01T20:00:00');
 const MIN = 60_000;
@@ -135,5 +135,22 @@ describe('buildSessions — bilan', () => {
     expect(s.maxBb).toBe(10);
     // Limite habituelle = NL2 (2 mains sur 3) → cette session touche NL10 → alerte.
     expect(sessions[0].aboveUsual).toBe(true);
+  });
+});
+
+describe('tablesComparison', () => {
+  it('répartit les mains par nombre de tables et marque « trop peu » sous 1000', () => {
+    // Session A : 2 mains sur 1 table (few). Session B (>30 min après) : 3 mains sur 3 tables (many).
+    const hands = [
+      hand({ id: 'a1', table: 'A', playedAt: T0, heroNet: 10 }),
+      hand({ id: 'a2', table: 'A', playedAt: T0 + MIN, heroNet: -10 }),
+      hand({ id: 'b1', table: 'A', playedAt: T0 + 60 * MIN, heroNet: 2 }),
+      hand({ id: 'b2', table: 'B', playedAt: T0 + 60 * MIN + 1000, heroNet: 2 }),
+      hand({ id: 'b3', table: 'C', playedAt: T0 + 60 * MIN + 2000, heroNet: 2 }),
+    ];
+    const c = tablesComparison(hands);
+    expect(c.few.hands).toBe(2);
+    expect(c.many.hands).toBe(3);
+    expect(c.comparable).toBe(false); // bien en dessous de 1000 de chaque côté
   });
 });

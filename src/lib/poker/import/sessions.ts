@@ -174,6 +174,35 @@ export function sessionStats(hands: ParsedHand[], mistakes: Mistake[]): SessionS
   };
 }
 
+export type TablesComparison = {
+  /** 1-2 tables simultanées. */
+  few: { hands: number; netBB100: number };
+  /** 3+ tables simultanées. */
+  many: { hands: number; netBB100: number };
+  /** Comparable seulement si chaque côté a ≥ 1000 mains. */
+  comparable: boolean;
+};
+
+/** Compare le winrate à 1-2 tables vs 3+ tables (BB/100 par main, valide multi-limites). */
+export function tablesComparison(hands: ParsedHand[]): TablesComparison {
+  const few: ParsedHand[] = [];
+  const many: ParsedHand[] = [];
+  for (const session of groupSessions(hands)) {
+    const target = maxSimultaneousTables(session) >= 3 ? many : few;
+    target.push(...session);
+  }
+  const netBB100 = (hs: ParsedHand[]) => {
+    let nb = 0;
+    for (const h of hs) if (h.bb > 0) nb += h.heroNet / h.bb;
+    return hs.length > 0 ? (nb / hs.length) * 100 : 0;
+  };
+  return {
+    few: { hands: few.length, netBB100: netBB100(few) },
+    many: { hands: many.length, netBB100: netBB100(many) },
+    comparable: few.length >= 1000 && many.length >= 1000,
+  };
+}
+
 /** Limite « habituelle » = celle jouée sur le plus de mains (toutes sessions confondues). */
 function usualBb(hands: ParsedHand[]): number {
   const counts = new Map<number, number>();
