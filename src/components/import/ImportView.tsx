@@ -120,22 +120,8 @@ export function ImportView() {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 p-3 sm:p-4">
-      <header className="flex items-center justify-between text-sm">
+      <header className="text-sm">
         <h1 className="text-lg font-bold">Import PokerStars</h1>
-        <div className="flex gap-2">
-          <Link
-            href="/mes-erreurs"
-            className="rounded-md border border-emerald-500 px-2 py-1 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950"
-          >
-            Mes erreurs
-          </Link>
-          <Link
-            href="/table"
-            className="rounded-md border border-neutral-300 px-2 py-1 text-xs font-semibold hover:bg-neutral-100 dark:border-neutral-600 dark:hover:bg-neutral-800"
-          >
-            ← Table
-          </Link>
-        </div>
       </header>
 
       <p className="text-sm text-neutral-500 dark:text-neutral-400">

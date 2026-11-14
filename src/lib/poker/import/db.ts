@@ -128,6 +128,19 @@ export async function updateMistakeReview(id: string, review: Review): Promise<v
   });
 }
 
+/** Comptage léger (sans charger les enregistrements) : mains et erreurs stockées. */
+export async function countImport(): Promise<{ hands: number; mistakes: number }> {
+  const db = await open();
+  const count = (store: string) =>
+    new Promise<number>((resolve, reject) => {
+      const req = db.transaction(store, 'readonly').objectStore(store).count();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  const [hands, mistakes] = await Promise.all([count(HANDS), count(MISTAKES)]);
+  return { hands, mistakes };
+}
+
 export function loadHands(): Promise<ParsedHand[]> {
   return getAll<ParsedHand>(HANDS);
 }

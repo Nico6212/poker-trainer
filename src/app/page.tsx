@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { SiteNav } from '@/components/SiteNav';
+import { countImport } from '@/lib/poker/import/db';
 
 // Accueil : présente l'outil en 30 secondes et oriente vers les 3 usages.
 // Si l'utilisateur a déjà des données locales, on lui propose de reprendre.
@@ -32,14 +33,26 @@ const BLOCKS = [
 ];
 
 export default function Home() {
-  const [returning, setReturning] = useState(false);
+  const [resume, setResume] = useState<{ label: string; href: string } | null>(null);
 
   useEffect(() => {
+    // Priorité au jeu/drill (localStorage) ; sinon, aux mains importées (IndexedDB).
+    let hasLocal = false;
     try {
-      setReturning(Object.keys(localStorage).some((k) => k.startsWith('poker-')));
+      hasLocal = Object.keys(localStorage).some((k) => k.startsWith('poker-'));
     } catch {
-      // stockage indisponible : on reste sur la présentation
+      // stockage indisponible
     }
+    if (hasLocal) {
+      setResume({ label: 'Reprendre ta séance du jour', href: '/table' });
+      return;
+    }
+    countImport()
+      .then(({ hands, mistakes }) => {
+        if (mistakes > 0) setResume({ label: 'Revoir mes erreurs', href: '/mes-erreurs' });
+        else if (hands > 0) setResume({ label: 'Revoir mes mains importées', href: '/import' });
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -48,14 +61,14 @@ export default function Home() {
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-4 sm:p-8">
         {/* Reprendre (visiteurs connus) */}
-        {returning && (
+        {resume && (
           <Link
-            href="/table"
+            href={resume.href}
             className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 transition hover:bg-emerald-500/15"
           >
             <span className="text-sm">
               <span className="font-semibold text-emerald-300">Content de te revoir.</span>{' '}
-              <span className="text-slate-300">Reprendre ta séance du jour</span>
+              <span className="text-slate-300">{resume.label}</span>
             </span>
             <span className="text-emerald-300">→</span>
           </Link>

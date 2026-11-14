@@ -1,3 +1,4 @@
+import { SiteNav } from '@/components/SiteNav';
 import { Table } from '@/components/table/Table';
 
 export const metadata = {
@@ -7,5 +8,10 @@ export const metadata = {
 };
 
 export default function TablePage() {
-  return <Table />;
+  return (
+    <>
+      <SiteNav />
+      <Table />
+    </>
+  );
 }
