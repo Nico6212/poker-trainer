@@ -101,6 +101,14 @@ describe('net du héros, table, horodatage', () => {
     expect(h.heroNet).toBe(-58);
   });
 
+  it('extrait rake, total pot, joueurs distribués et investi du héros', () => {
+    const h = parsePokerStars(HAND).hands[0];
+    expect(h.rake).toBe(2); // €0.02
+    expect(h.totalPot).toBe(180); // €1.80
+    expect(h.playersDealt).toBe(3); // villain1, Hero, villain3 agissent préflop
+    expect(h.heroInvested).toBe(58); // 6 + 8 + 44
+  });
+
   it('horodatage avec heure à un chiffre (avant 10h) — PokerStars ne zéro-padde pas', () => {
     const morning = HAND.replace('2024/01/15 20:00:00', '2024/01/15 9:34:20');
     const h = parsePokerStars(morning).hands[0];

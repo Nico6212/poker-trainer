@@ -39,6 +39,10 @@ describe('extractSpots — tapis effectif', () => {
         a(1, 'call', 22), // DÉCISION du héros : call du 4-bet
       ],
       heroNet: 0,
+      heroInvested: 0,
+      rake: 0,
+      totalPot: 0,
+      playersDealt: 3,
       shown: {},
     };
 
@@ -75,6 +79,10 @@ describe('extractSpots — tapis effectif', () => {
         a(1, 'raise', 6, { toAmount: 6 }), // le héros ouvre (pas d'agresseur devant)
       ],
       heroNet: 0,
+      heroInvested: 0,
+      rake: 0,
+      totalPot: 0,
+      playersDealt: 3,
       shown: {},
     };
 

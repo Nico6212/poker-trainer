@@ -1,11 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { classifyHand, type Mistake } from '@/lib/poker/import/classify-mistake';
 import { clearImport, saveImport } from '@/lib/poker/import/db';
+import { rakeByLimit, rakeSummary } from '@/lib/poker/import/rake';
 import { parsePokerStars, skipLabel, type ParsedHand, type SkipReason } from '@/lib/poker/import/parse-pokerstars';
-import { buildSessions, type Session } from '@/lib/poker/import/sessions';
+import { buildSessions, nlLabel, type Session } from '@/lib/poker/import/sessions';
+
+const RAKEBACK_KEY = 'poker-rakeback';
+const bb100 = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1)} BB/100`;
 
 const MISTAKE_LABELS: Record<Mistake['type'], string> = {
   'open-limp': 'Open-limp',
@@ -67,12 +71,28 @@ export function ImportView() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [hands, setHands] = useState<ParsedHand[]>([]);
+  const [rakeback, setRakeback] = useState(0); // % de rakeback (0-100)
   const [summary, setSummary] = useState<{
     hands: number;
     newHands: number;
     duplicates: number;
     skipped: Partial<Record<SkipReason, number>>;
   } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(RAKEBACK_KEY);
+      if (raw !== null) setRakeback(Math.min(100, Math.max(0, Number(raw) || 0)));
+    } catch {
+      // stockage indisponible
+    }
+  }, []);
+
+  const rb = rakeback / 100;
+  const handById = useMemo(() => new Map(hands.map((h) => [h.id, h])), [hands]);
+  const rake = useMemo(() => (hands.length ? rakeSummary(hands, rb) : null), [hands, rb]);
+  const rakePerLimit = useMemo(() => rakeByLimit(hands, rb), [hands, rb]);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -108,6 +128,7 @@ export function ImportView() {
 
       setSummary({ hands: uniqueHands.length, newHands, duplicates, skipped });
       setSessions(buildSessions(uniqueHands, mistakes));
+      setHands(uniqueHands);
     } catch (error) {
       console.error(error);
       setProgress('Erreur de lecture. Vérifie que ce sont bien des .txt PokerStars (anglais).');
@@ -196,8 +217,64 @@ export function ImportView() {
         </div>
       ) : null}
 
+      {rake && (
+        <div className="flex flex-col gap-3 rounded-xl border border-amber-400/40 bg-amber-50 p-3 text-sm dark:border-amber-500/20 dark:bg-amber-950/20">
+          <h2 className="font-bold">Rake prélevé par le site</h2>
+          <p>
+            Le site t’a pris <strong>{euros(rake.rakeCents).replace('+', '')}</strong> ({bb100(rake.rakeBB100)}).
+            Sans rake, tu serais à <strong>{bb100(rake.grossBB100)}</strong> (brut) au lieu de{' '}
+            <strong>{bb100(rake.netBB100)}</strong> (net).
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label className="flex items-center gap-1.5">
+              Rakeback :
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={rakeback}
+                onChange={(e) => {
+                  const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                  setRakeback(v);
+                  try {
+                    window.localStorage.setItem(RAKEBACK_KEY, String(v));
+                  } catch {
+                    // quota / indisponible
+                  }
+                }}
+                className="w-16 rounded-md border border-neutral-300 bg-white px-2 py-1 text-right dark:border-neutral-600 dark:bg-neutral-800"
+              />
+              %
+            </label>
+            {rakeback > 0 && (
+              <span className="text-neutral-600 dark:text-neutral-300">
+                → tu récupères {euros(rake.rakebackCents).replace('+', '')}, net ajusté{' '}
+                <strong>{bb100(rake.adjustedBB100)}</strong>
+              </span>
+            )}
+          </div>
+
+          {rakePerLimit.length > 1 && (
+            <ul className="flex flex-col gap-0.5 text-xs text-neutral-600 dark:text-neutral-300">
+              {rakePerLimit.map(({ bb, summary: r }) => (
+                <li key={bb}>
+                  {nlLabel(bb)} : {r.hands} mains · rake {euros(r.rakeCents).replace('+', '')} ({bb100(r.rakeBB100)})
+                  · net {bb100(r.netBB100)} / brut {bb100(r.grossBB100)}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+            Rake « contribué » = rake × ta part investie du pot. Méthode principale.
+          </p>
+        </div>
+      )}
+
       {sessions &&
         sessions.map((session, i) => {
+          const sHands = session.handIds.map((id) => handById.get(id)).filter((h): h is ParsedHand => !!h);
+          const sRake = sHands.length ? rakeSummary(sHands, rb) : null;
           const s = session.stats;
           const errors = Object.entries(s.errorCounts).filter(([, n]) => n > 0);
           return (
@@ -236,6 +313,12 @@ export function ImportView() {
               <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 VPIP {pct(s.vpip)} · PFR {pct(s.pfr)} · 3-bet {pct(s.threeBet)}
               </p>
+              {sRake && sRake.rakeCents > 0 && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Rake {euros(sRake.rakeCents).replace('+', '')} ({bb100(sRake.rakeBB100)}) · brut{' '}
+                  {bb100(sRake.grossBB100)}
+                </p>
+              )}
               {errors.length === 0 ? (
                 <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
                   ✓ Pas d’erreur détectée sur cette session.
@@ -264,6 +347,7 @@ export function ImportView() {
               await clearImport();
               setSessions(null);
               setSummary(null);
+              setHands([]);
             }
           }}
           className="self-start text-xs text-neutral-400 underline hover:text-neutral-600"

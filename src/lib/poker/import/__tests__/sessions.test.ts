@@ -25,6 +25,10 @@ function hand(p: Partial<ParsedHand> & { id: string }): ParsedHand {
     board: [],
     actions: p.actions ?? [],
     heroNet: p.heroNet ?? 0,
+    heroInvested: p.heroInvested ?? 0,
+    rake: p.rake ?? 0,
+    totalPot: p.totalPot ?? 0,
+    playersDealt: p.playersDealt ?? 2,
     shown: {},
     ...p,
   };

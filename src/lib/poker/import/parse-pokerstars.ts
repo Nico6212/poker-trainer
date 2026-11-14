@@ -48,6 +48,14 @@ export type ParsedHand = {
   actions: ParsedAction[];
   /** Net du héros sur la main (gagné − investi), en centimes. Pour le bilan €/BB. */
   heroNet: number;
+  /** Ce que le héros a mis dans le pot (net des mises non payées rendues). Pour le rake contribué. */
+  heroInvested: number;
+  /** Rake prélevé par le site sur la main, en centimes (0 si « no flop, no drop »). */
+  rake: number;
+  /** « Total pot » du résumé, en centimes (pot total sur lequel porte le rake). */
+  totalPot: number;
+  /** Nombre de joueurs distribués (le plafond de rake en dépend). */
+  playersDealt: number;
   /** Cartes montrées à l'abattage, par siège (pour « Revoir la main »). */
   shown: Record<number, [Card, Card]>;
 };
@@ -250,6 +258,13 @@ function parseHand(block: string): ParsedHand | SkipReason {
     }
   }
 
+  // Rake et total pot : « Total pot €X [Main pot … Side pot …] | Rake €Y » (une seule ligne).
+  const potLine = block.match(/Total pot (\S+).*?\| Rake (\S+)/);
+  const totalPot = potLine ? parseAmount(potLine[1]) : 0;
+  const rake = potLine ? parseAmount(potLine[2]) : 0;
+  // Joueurs distribués = sièges distincts ayant au moins une action préflop (exclut les sitting out).
+  const playersDealt = new Set(actions.filter((a) => a.street === 'preflop').map((a) => a.seat)).size;
+
   return {
     id,
     sb,
@@ -266,6 +281,10 @@ function parseHand(block: string): ParsedHand | SkipReason {
     board,
     actions,
     heroNet: heroCollected - heroInvested,
+    heroInvested,
+    rake,
+    totalPot,
+    playersDealt,
     shown,
   };
 }
