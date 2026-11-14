@@ -24,6 +24,45 @@ const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)} 
 /** Laisse le navigateur respirer entre deux lots de classification (équité Monte-Carlo). */
 const yieldToUI = () => new Promise((r) => setTimeout(r, 0));
 
+/** Aide ciblée quand aucune main valide n'a été importée, selon la raison du rejet. */
+function importHelp(skipped: Partial<Record<SkipReason, number>>): {
+  title: string;
+  body: string;
+  cta: string;
+  href: string;
+} {
+  if (skipped.french) {
+    return {
+      title: '⚠ Tes fichiers sont en français',
+      body: 'L’outil ne lit que l’anglais pour l’instant. Active « Sauvegarder en anglais » dans PokerStars — les mains déjà jouées resteront en français.',
+      cta: 'Voir l’étape 1',
+      href: '/aide/import#anglais',
+    };
+  }
+  if (skipped.tournament) {
+    return {
+      title: 'Ce sont des tournois / Spin & Go',
+      body: 'Pas encore pris en charge : seul le cash game est géré pour l’instant.',
+      cta: 'Ce qui est pris en charge',
+      href: '/aide/import#supporte',
+    };
+  }
+  if (skipped.notHoldem) {
+    return {
+      title: 'Variante non Hold’em détectée',
+      body: 'Seul le Hold’em No Limit est géré.',
+      cta: 'Ce qui est pris en charge',
+      href: '/aide/import#supporte',
+    };
+  }
+  return {
+    title: 'Aucune main PokerStars reconnue',
+    body: 'Mauvais dossier ? Les fichiers doivent commencer par « HH… » et être des .txt PokerStars (cash, anglais).',
+    cta: 'Comment trouver mes fichiers ?',
+    href: '/aide/import#trouver',
+  };
+}
+
 export function ImportView() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -125,9 +164,35 @@ export function ImportView() {
         />
       </label>
 
+      <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
+        Tu ne trouves pas tes fichiers ?{' '}
+        <Link
+          href="/aide/import#trouver"
+          className="font-semibold text-emerald-600 underline hover:text-emerald-700 dark:text-emerald-400"
+        >
+          Comment trouver mes fichiers ?
+        </Link>
+      </p>
+
       {progress && <p className="text-sm text-sky-700 dark:text-sky-300">{progress}</p>}
 
-      {summary && (
+      {summary && summary.hands === 0 ? (
+        (() => {
+          const help = importHelp(summary.skipped);
+          return (
+            <div className="rounded-xl border border-amber-400/60 bg-amber-50 p-4 text-sm dark:border-amber-500/30 dark:bg-amber-950/30">
+              <p className="font-semibold text-amber-900 dark:text-amber-200">{help.title}</p>
+              <p className="mt-1 text-amber-800/90 dark:text-amber-100/80">{help.body}</p>
+              <Link
+                href={help.href}
+                className="mt-2 inline-block rounded-md border border-amber-500 px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              >
+                {help.cta} →
+              </Link>
+            </div>
+          );
+        })()
+      ) : summary ? (
         <div className="rounded-xl border border-black/10 bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-neutral-900/70">
           <p>
             <strong>{summary.newHands}</strong> nouvelles mains importées
@@ -143,7 +208,7 @@ export function ImportView() {
             </ul>
           )}
         </div>
-      )}
+      ) : null}
 
       {sessions &&
         sessions.map((session, i) => {
